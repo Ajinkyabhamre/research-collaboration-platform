@@ -138,6 +138,51 @@ export const typeDefs = `#graphql
             # Caching: One-hour expiration; completed in resolvers.js.
                 getProjectsByUserId (_id: String!): [Project]
 
+            # me: User
+            # Purpose: Returns the currently authenticated user from context
+            # No caching (user-specific data)
+                me: User
+
+        #HOME FEED V2 QUERIES
+
+            # feed(cursor: FeedCursorInput): FeedPage!
+            # Purpose: Returns paginated feed of posts (newest first)
+            # Caching: Optional (invalidate on post creation)
+
+                feed(cursor: FeedCursorInput): FeedPage!
+
+            # postComments(postId: String!, cursor: CommentsCursorInput): CommentsPage!
+            # Purpose: Returns paginated comments for a specific post
+            # Caching: Optional (invalidate on comment creation)
+
+                postComments(postId: String!, cursor: CommentsCursorInput): CommentsPage!
+
+        #DIRECT MESSAGING QUERIES
+
+            # conversations(cursor: ConversationsCursorInput): ConversationsPage!
+            # Purpose: Returns paginated list of conversations for current user (newest first)
+            # Auth: Authenticated users only
+            # Caching: Optional (invalidate on new message)
+
+                conversations(cursor: ConversationsCursorInput): ConversationsPage!
+
+            # conversationMessages(conversationId: String!, cursor: MessagesCursorInput): MessagesPage!
+            # Purpose: Returns paginated messages for a specific conversation
+            # Auth: Only conversation participants can access
+            # Caching: Optional (invalidate on new message in conversation)
+
+                conversationMessages(
+                    conversationId: String!
+                    cursor: MessagesCursorInput
+                ): MessagesPage!
+
+            # getOrCreateConversation(recipientId: String!): Conversation!
+            # Purpose: Get existing conversation with recipient, or create if doesn't exist
+            # Auth: Authenticated users only
+            # Caching: No cache (mutation-like behavior)
+
+                getOrCreateConversation(recipientId: String!): Conversation!
+
     }
 
 #TYPE DEFINITIONS
@@ -146,21 +191,59 @@ export const typeDefs = `#graphql
         
         type User {
             _id: String!                    # ObjectId, required
+            clerkId: String!                # Clerk user ID, required, unique
             firstName: String!              # required
             lastName: String!               # required
             email: String!                  # Required and should be unique
-            password: String!               # Required (stored as a hash)
             role: Role!                     # required (enum)
             department: Department!         # required (enum)
             bio: String                     # not required
+            headline: String                # not required, e.g. "Computer Science Student"
+            location: String                # not required, e.g. "Hoboken, NJ"
+            city: String                    # not required, e.g. "Hoboken"
+            profileLinks: ProfileLinks      # not required, social/external links
+            profilePhoto: String            # not required, URL to profile photo
+            coverPhoto: String              # not required, URL to cover/banner photo
+            featuredProjectId: String       # not required, ID of featured project
+            skills: [String]                # not required, array of skill names
+            education: [Education]          # not required, educational background
+            experience: [Experience]        # not required, work/research experience
             applications: [Application]     # Computed Value, Array of application objects
             projects: [Project]             # Computed value, arraay of project objects
             numOfApplications: Int!         # Computed value, number of applications completed
             numOfProjects: Int!             # Computed value, number of projects involved in
         }
 
+    # ProfileLinks Type: Social and external profile links
+        type ProfileLinks {
+            github: String
+            linkedin: String
+            website: String
+        }
+
+    # Education Type: Educational background
+        type Education {
+            institution: String!
+            degree: String
+            field: String
+            startDate: String
+            endDate: String
+            location: String
+            description: String
+        }
+
+    # Experience Type: Work/research experience
+        type Experience {
+            title: String!
+            company: String
+            location: String
+            startDate: String
+            endDate: String
+            description: String
+        }
+
     # Project Type: Definition
-    
+
         type Project {
             _id: String!                    # ObjectId, required
             title: String!                  # required
@@ -173,6 +256,10 @@ export const typeDefs = `#graphql
             numOfApplications: Int!         # Computed value, number of applications for this project
             updates: [Update]               # Computed value,
             numOfUpdates: Int!              # Computed value, the number of updates delivered about this project
+            githubUrl: String               # Portfolio: GitHub repository URL
+            liveUrl: String                 # Portfolio: Live demo URL
+            demoVideoUrl: String            # Portfolio: Demo video URL
+            techStack: [String]             # Portfolio: Array of technologies used
         }
 
     # Update Type: Definition (A conglomeration of updates builds newsfeeds)
@@ -279,9 +366,208 @@ export const typeDefs = `#graphql
     # CommentDestination
 
         enum CommentDestination {
-                UPDATE        
-                APPLICATION       
-            } 
+                UPDATE
+                APPLICATION
+            }
+
+#HOME FEED V2 TYPE DEFINITIONS
+
+    # Post Type: Definition (LinkedIn-style social posts)
+
+        type Post {
+            _id: String!                    # ObjectId, required
+            author: User!                   # Computed Value, user who created the post
+            text: String!                   # Post content, required
+            media: [PostMedia!]             # Array of media items (images/videos)
+            createdAt: String!              # ISO format, required
+            updatedAt: String!              # ISO format, required
+            likeCount: Int!                 # Denormalized count of likes
+            commentCount: Int!              # Denormalized count of comments
+            viewerHasLiked: Boolean!        # Computed: whether current user liked this post
+        }
+
+    # PostComment Type: Definition
+
+        type PostComment {
+            _id: String!                    # ObjectId, required
+            postId: String!                 # Reference to parent post
+            commenter: User!                # Computed Value, user who commented
+            text: String!                   # Comment content (note: 'text' not 'content' to match frontend)
+            createdAt: String!              # ISO format, required
+            updatedAt: String!              # ISO format, required
+        }
+
+    # PostMedia Type: Definition
+
+        type PostMedia {
+            type: MediaType!                # IMAGE or VIDEO
+            url: String!                    # URL to media file
+            thumbnailUrl: String            # Optional thumbnail for videos
+            alt: String                     # Alt text for images
+        }
+
+    # FeedPage Type: Cursor-based pagination for posts
+
+        type FeedPage {
+            items: [Post!]!                 # Array of posts
+            nextCursor: String              # Cursor for next page (null if no more)
+        }
+
+    # CommentsPage Type: Cursor-based pagination for comments
+
+        type CommentsPage {
+            items: [PostComment!]!          # Array of comments
+            nextCursor: String              # Cursor for next page (null if no more)
+        }
+
+    # MediaType Enum
+
+        enum MediaType {
+            IMAGE
+            VIDEO
+        }
+
+#DIRECT MESSAGING TYPES
+
+    # Conversation Type: 1:1 messaging thread
+
+        type Conversation {
+            _id: String!                    # ObjectId, required
+            participants: [User!]!          # Computed: Resolved to full User objects
+            lastMessage: LastMessagePreview # Preview of most recent message
+            unreadCount: Int!               # Computed: Unread messages for current user
+            createdAt: String!              # ISO format, required
+            updatedAt: String!              # ISO format, required
+        }
+
+    # LastMessagePreview Type: Preview for conversation list
+
+        type LastMessagePreview {
+            text: String!                   # Message text
+            sender: User!                   # Computed: Resolved to User object
+            timestamp: String!              # ISO format
+        }
+
+    # DirectMessage Type: Individual message in conversation
+
+        type DirectMessage {
+            _id: String!                    # ObjectId, required
+            conversationId: String!         # Reference to conversation
+            sender: User!                   # Computed: Resolved to User object
+            text: String!                   # Message content, required
+            isRead: Boolean!                # Computed: Whether current user has read
+            createdAt: String!              # ISO format, required
+            updatedAt: String!              # ISO format, required
+        }
+
+    # ConversationsPage Type: Cursor-based pagination for conversations
+
+        type ConversationsPage {
+            items: [Conversation!]!         # Array of conversations
+            nextCursor: String              # Cursor for next page (null if no more)
+        }
+
+    # MessagesPage Type: Cursor-based pagination for messages
+
+        type MessagesPage {
+            items: [DirectMessage!]!        # Array of messages
+            nextCursor: String              # Cursor for next page (null if no more)
+        }
+
+#INPUT TYPES FOR HOME FEED V2
+
+    # FeedCursorInput: Pagination input for feed query
+
+        input FeedCursorInput {
+            limit: Int                      # Number of items to fetch (default 10)
+            cursor: String                  # Cursor from previous page (null for first page)
+        }
+
+    # CommentsCursorInput: Pagination input for comments query
+
+        input CommentsCursorInput {
+            limit: Int                      # Number of items to fetch (default 5)
+            cursor: String                  # Cursor from previous page (null for first page)
+        }
+
+    # PostMediaInput: Input for creating posts with media
+
+        input PostMediaInput {
+            type: MediaType!                # IMAGE or VIDEO
+            url: String!                    # URL to media file
+            thumbnailUrl: String            # Optional thumbnail
+            alt: String                     # Alt text
+        }
+
+#INPUT TYPES FOR DIRECT MESSAGING
+
+    # ConversationsCursorInput: Pagination input for conversations query
+
+        input ConversationsCursorInput {
+            limit: Int                      # Number of items to fetch (default 20)
+            cursor: String                  # Cursor from previous page (null for first page)
+        }
+
+    # MessagesCursorInput: Pagination input for messages query
+
+        input MessagesCursorInput {
+            limit: Int                      # Number of items to fetch (default 30)
+            cursor: String                  # Cursor from previous page (null for first page)
+        }
+
+    # ProfileLinksInput: Input for profile social/external links
+
+        input ProfileLinksInput {
+            github: String                  # GitHub profile URL
+            linkedin: String                # LinkedIn profile URL
+            website: String                 # Personal website URL
+        }
+
+    # EducationInput: Input for education entries
+        input EducationInput {
+            institution: String!            # Institution name (required)
+            degree: String                  # Degree name
+            field: String                   # Field of study
+            startDate: String               # Start date (YYYY-MM or YYYY-MM-DD)
+            endDate: String                 # End date (YYYY-MM or YYYY-MM-DD)
+            location: String                # Location
+            description: String             # Description
+        }
+
+    # ExperienceInput: Input for experience entries
+        input ExperienceInput {
+            title: String!                  # Job/role title (required)
+            company: String                 # Company/organization name
+            location: String                # Location
+            startDate: String               # Start date (YYYY-MM or YYYY-MM-DD)
+            endDate: String                 # End date (YYYY-MM or YYYY-MM-DD)
+            description: String             # Description
+        }
+
+    # UpdateProjectPortfolioInput: Input for updating project portfolio details
+
+        input UpdateProjectPortfolioInput {
+            githubUrl: String               # GitHub repository URL
+            liveUrl: String                 # Live demo URL
+            demoVideoUrl: String            # Demo video URL
+            techStack: [String]             # Array of technologies used
+        }
+
+    # UpdateMyProfileInput: Input for updating current user's profile
+
+        input UpdateMyProfileInput {
+            headline: String                # Professional headline
+            location: String                # Location (e.g. "Hoboken, NJ")
+            city: String                    # City (e.g. "Hoboken")
+            bio: String                     # About/bio text
+            profileLinks: ProfileLinksInput # Social/external links
+            profilePhoto: String            # Profile photo URL
+            coverPhoto: String              # Cover/banner photo URL
+            featuredProjectId: String       # Featured project ID
+            skills: [String]                # Array of skill names
+            education: [EducationInput]     # Educational background
+            experience: [ExperienceInput]   # Work/research experience
+        }
 
 #MUTATIONS
 
@@ -292,13 +578,12 @@ export const typeDefs = `#graphql
     # Cache: Add the user to the Redis cache.
         
         addUser(
-            firstName: String!              
+            firstName: String!
             lastName: String!
-            email: String!                   
-            password: String!               
-            role: Role!                     
-            department: Department!         
-            bio: String                     
+            email: String!
+            role: Role!
+            department: Department!
+            bio: String
         ): User
     
     # removeUser
@@ -312,18 +597,26 @@ export const typeDefs = `#graphql
     # editUser
     # Purpose: Update an author's details based on the provided fields.
     # Cache: Ensure the Redis cache is updated accordingly.
-    
+
         editUser(
-            _id: String!                     
-            firstName: String                
-            lastName: String                 
-            email: String                    
-            password: String                 
-            role: Role                       
-            department: Department           
-            bio: String        
+            _id: String!
+            firstName: String
+            lastName: String
+            email: String
+            role: Role
+            department: Department
+            bio: String
         ): User
-    
+
+    # updateMyProfile
+    # Purpose: Update the current authenticated user's profile
+    # Auth: Uses context.currentUser (no _id required)
+    # Cache: Clear user caches after update
+
+        updateMyProfile(
+            input: UpdateMyProfileInput!
+        ): User
+
     # addProject
     # Purpose: Add a new project to MongoDB
     # Cache: Add the project to Redis and ensure proper caching for related entities.
@@ -347,7 +640,7 @@ export const typeDefs = `#graphql
     # editProject
     # Purpose: Update a project's detail
     # Cache: Ensure Redis cache is updated for both the project and its related entities
-    
+
         editProject(
             _id: String!
             title: String
@@ -357,7 +650,17 @@ export const typeDefs = `#graphql
             studentIds: [String]
             applicationIds: [String]
         ): Project
-  
+
+    # updateProjectPortfolio
+    # Purpose: Update project portfolio details (URLs, tech stack)
+    # Auth: Only project professors/students can update
+    # Cache: Clear project caches after update
+
+        updateProjectPortfolio(
+            projectId: String!
+            input: UpdateProjectPortfolioInput!
+        ): Project
+
     # addUpdate
     # Purpose: Create a new update and add it to MongoDB.
     # Cache: Add the update to the Redis cache.
@@ -456,5 +759,68 @@ export const typeDefs = `#graphql
     #login
 
         login(token: String!): LoginResponse!
+
+    #HOME FEED V2 MUTATIONS
+
+    # createPost
+    # Purpose: Create a new post with optional media
+    # Cache: Invalidate feed cache
+    # Auth: All authenticated users can post
+
+        createPost(
+            text: String!
+            media: [PostMediaInput!]
+        ): Post!
+
+    # toggleLike
+    # Purpose: Like or unlike a post (toggle)
+    # Cache: Update post cache
+    # Auth: All authenticated users
+
+        toggleLike(
+            postId: String!
+        ): Post!
+
+    # addPostComment
+    # Purpose: Add a comment to a post
+    # Cache: Invalidate comments cache for this post
+    # Auth: All authenticated users
+
+        addPostComment(
+            postId: String!
+            text: String!
+        ): PostComment!
+
+    # deletePost
+    # Purpose: Delete a post (only by author)
+    # Cache: Invalidate feed cache
+    # Auth: Only post author can delete
+
+        deletePost(
+            postId: String!
+        ): Boolean!
+
+    #DIRECT MESSAGING MUTATIONS
+
+    # sendDirectMessage
+    # Purpose: Send a direct message to another user
+    # Cache: Invalidate conversation list caches for both participants
+    # Auth: All authenticated users
+    # Creates conversation if it doesn't exist
+
+        sendDirectMessage(
+            recipientId: String!
+            text: String!
+        ): DirectMessage!
+
+    # markConversationAsRead
+    # Purpose: Mark all messages in a conversation as read by current user
+    # Cache: Update conversation cache (unread count)
+    # Auth: Only conversation participants
+
+        markConversationAsRead(
+            conversationId: String!
+        ): Conversation!
+
         }
 `;

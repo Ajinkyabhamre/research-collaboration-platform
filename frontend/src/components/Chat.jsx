@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { io } from "socket.io-client";
-import { useAuth } from "../context/AuthContext";
+import { useUser } from "@clerk/clerk-react";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 
 import { useQuery } from "@apollo/client";
 import queries from "../queries";
 
 function Chat() {
-  const { authState } = useAuth(); // Get authenticated user details
+  const { user: clerkUser } = useUser();
+  const { user: mongoUser } = useCurrentUser();
   const [socket, setSocket] = useState(null);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
@@ -14,12 +16,12 @@ function Chat() {
 
   // Fetch user data using useQuery
   const { data, loading, error } = useQuery(queries.GET_USER_BY_ID, {
-    variables: { id: authState.user.id },
-    skip: !authState.isAuthenticated, // Skip query if not authenticated
+    variables: { id: mongoUser?._id },
+    skip: !clerkUser || !mongoUser, // Skip query if not authenticated
   });
 
   useEffect(() => {
-    if (!authState.isAuthenticated) {
+    if (!clerkUser || !mongoUser) {
       window.location.href = "/login";
       return;
     }
@@ -28,8 +30,8 @@ function Chat() {
     setSocket(newSocket);
 
     newSocket.emit("user_connected", {
-      email: authState.user.email,
-      role: authState.user.role,
+      email: clerkUser.primaryEmailAddress.emailAddress,
+      role: mongoUser.role,
     });
 
     // if (socket && selectedChannel) {
@@ -50,7 +52,7 @@ function Chat() {
     return () => {
       newSocket.disconnect();
     };
-  }, [authState]);
+  }, [clerkUser, mongoUser]);
 
   useEffect(() => {
     if (socket && selectedChannel) {
@@ -87,7 +89,7 @@ function Chat() {
       // Emit the message to the specific channel
       socket.emit("chat_message", {
         channel: selectedChannel,
-        user: authState.user.email,
+        user: clerkUser.primaryEmailAddress.emailAddress,
         message,
       });
       setMessage(""); // Clear the input
@@ -131,7 +133,7 @@ function Chat() {
               <div
                 key={index}
                 className={`message ${
-                  msg.user === authState.user.email
+                  msg.user === clerkUser.primaryEmailAddress.emailAddress
                     ? "current-user"
                     : "other-user"
                 }`}

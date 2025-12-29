@@ -1,7 +1,7 @@
 import React, {useState} from 'react';
 import {useQuery, useMutation} from '@apollo/client';
 import queries from '../../queries.js';
-import { useAuth } from "../../context/AuthContext";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useNavigate, Link } from "react-router-dom";
 
 import {
@@ -12,8 +12,8 @@ import {
 } from "../../helpers";
 
 const EditUser = () => {
-    const {authState} = useAuth();
-    const userId = authState.user.id;
+    const { user } = useCurrentUser();
+    const userId = user?._id;
 
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
@@ -55,7 +55,7 @@ const EditUser = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        const user = userData.getUserById;
+        const userDetails = userData.getUserById;
         
         const {
             firstName,
@@ -73,37 +73,37 @@ const EditUser = () => {
                 firstName.value = checkIsProperFirstOrLastName(firstName.value, "firstName");
                 firstNameValue = firstName.value;
             } else {
-                firstNameValue = user.firstName;
+                firstNameValue = userDetails.firstName;
             }
             if(lastName.value !== ""){
                 lastName.value = checkIsProperFirstOrLastName(lastName.value, "lastName");
                 lastNameValue = lastName.value;
             } else {
-                lastNameValue = user.lastName;
+                lastNameValue = userDetails.lastName;
             }
             if(email.value){
                 email.value = validateEmail(email.value);
                 emailValue = email.value;
             } else {
-                emailValue = user.email;
+                emailValue = userDetails.email;
             }
             if(role.value){
                 role.value = checkIsProperString(role.value, "role");
                 roleValue = role.value;
             } else {
-                roleValue = user.role;
+                roleValue = userDetails.role;
             }
             if(department.value){
                 department.value = checkIsProperString(department.value, "department");
                 departmentValue = department.value;
             } else {
-                departmentValue = user.department;
+                departmentValue = userDetails.department;
             }
             if(bio.value){
                 bio.value = checkIsProperString(bio.value, "bio");
                 bioValue = bio.value;
             } else {
-                bioValue = user.bio;
+                bioValue = userDetails.bio;
             }
 
             const {data} = await editUser({
@@ -126,6 +126,7 @@ const EditUser = () => {
         }
     }
     
+    if(!user) return <p className="loader">Loading user...</p>;
     if(userLoading) return <p className="loader">Loading user data...</p>;
     if(userError) return <p className="error-message">Error loading user data: {userError.message}</p>
 

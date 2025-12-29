@@ -14,5 +14,17 @@ export default defineConfig({
     strictPort: true,
     host: true,
     origin: "http://localhost:8080",
+    watch: {
+      // Ignore runtime-written files that trigger HMR reload loops
+      ignored: [
+        '**/logs/**',                      // Runtime log files (root level)
+        '**/.claude/**',                   // Claude Code workspace files
+        '**/backend/public/uploads/**',    // Backend upload directory
+        '**/dist/**',                      // Build output
+      ],
+    },
+    fs: {
+      strict: true,  // Prevent serving files outside frontend root
+    },
   },
 });

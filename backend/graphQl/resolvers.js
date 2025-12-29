@@ -2,7 +2,6 @@
 
 //GraphQLError: Used for handling GraphQL-specific errors
 import { GraphQLError } from "graphql";
-import admin from "firebase-admin";
 import dotenv from "dotenv";
 
 //MongoDB: collections for users, projects, updates, and applications
@@ -12,6 +11,11 @@ import {
   updates as updateCollection,
   applications as applicationCollection,
   comments as commentCollection,
+  posts as postCollection,
+  postLikes as postLikesCollection,
+  postComments as postCommentsCollection,
+  conversations as conversationsCollection,
+  directMessages as directMessagesCollection,
 } from "../config/mongoCollections.js";
 
 //ObjectId: MongoDB's unique IDs
@@ -22,6 +26,9 @@ import { createClient } from "redis";
 
 //Helpers (Validators)
 import * as helpers from "./helpers.js";
+
+//Socket.IO instance for real-time messaging
+import { io } from "../app.js";
 
 //REDIS CLIENT SET UP
 dotenv.config();
@@ -40,12 +47,30 @@ redisClient.on("error", (err) => console.error("Redis Client Error", err));
 (async () => {
   try {
     await redisClient.connect();
-    await redisClient.flushAll();
+    // PHASE 5: Removed flushAll from startup - use targeted cache invalidation instead
     console.log("Connected to Redis");
   } catch (error) {
     console.error("Failed to connect to Redis:", error);
   }
 })();
+
+// Authorization helper functions (defined outside resolvers object)
+const requireAuth = (context) => {
+  if (!context.auth.isAuthenticated || !context.currentUser) {
+    throw new GraphQLError('You must be logged in to perform this action', {
+      extensions: { code: 'UNAUTHENTICATED' }
+    });
+  }
+};
+
+const requireRole = (context, allowedRoles) => {
+  requireAuth(context);
+  if (!allowedRoles.includes(context.currentUser.role)) {
+    throw new GraphQLError(`Access denied. Required roles: ${allowedRoles.join(', ')}`, {
+      extensions: { code: 'FORBIDDEN' }
+    });
+  }
+};
 
 //RESOLVERS
 export const resolvers = {
@@ -83,6 +108,252 @@ export const resolvers = {
 
       //Return allUsers
       return allUsers;
+    },
+
+    //QUERY: me: User
+    //Purpose: Return the currently authenticated user
+    me: async (_, __, context) => {
+      if (!context.currentUser) {
+        return null;
+      }
+      return context.currentUser;
+    },
+
+    //HOME FEED V2 QUERIES
+
+    //QUERY: feed(cursor: FeedCursorInput): FeedPage!
+    //Purpose: Fetch paginated posts for the home feed (newest first)
+    //Cache: Optional (invalidate on post creation)
+    feed: async (_, args, context) => {
+      const posts = await postCollection();
+      const limit = args.cursor?.limit || 10;
+      const cursor = args.cursor?.cursor;
+
+      // Build query for cursor-based pagination
+      let query = {};
+      if (cursor) {
+        // Cursor is the createdAt timestamp
+        query.createdAt = { $lt: cursor };
+      }
+
+      // Fetch posts sorted by createdAt descending (newest first)
+      const fetchedPosts = await posts
+        .find(query)
+        .sort({ createdAt: -1 })
+        .limit(limit + 1) // Fetch one extra to determine if there's a next page
+        .toArray();
+
+      // Determine if there are more posts
+      const hasMore = fetchedPosts.length > limit;
+      const items = hasMore ? fetchedPosts.slice(0, limit) : fetchedPosts;
+      const nextCursor = hasMore ? items[items.length - 1].createdAt : null;
+
+      return {
+        items,
+        nextCursor,
+      };
+    },
+
+    //QUERY: postComments(postId: String!, cursor: CommentsCursorInput): CommentsPage!
+    //Purpose: Fetch paginated comments for a specific post
+    //Cache: Optional (invalidate on comment creation)
+    postComments: async (_, args) => {
+      if (!args.postId) {
+        throw new GraphQLError("The postId field is required.", {
+          extensions: { code: "BAD_USER_INPUT" },
+        });
+      }
+
+      helpers.checkArg(args.postId, "string", "id");
+
+      const comments = await postCommentsCollection();
+      const limit = args.cursor?.limit || 5;
+      const cursor = args.cursor?.cursor;
+
+      // Build query for cursor-based pagination
+      let query = { postId: args.postId };
+      if (cursor) {
+        query.createdAt = { $lt: cursor };
+      }
+
+      // Fetch comments sorted by createdAt descending (newest first)
+      const fetchedComments = await comments
+        .find(query)
+        .sort({ createdAt: -1 })
+        .limit(limit + 1)
+        .toArray();
+
+      // Determine if there are more comments
+      const hasMore = fetchedComments.length > limit;
+      const items = hasMore ? fetchedComments.slice(0, limit) : fetchedComments;
+      const nextCursor = hasMore ? items[items.length - 1].createdAt : null;
+
+      return {
+        items,
+        nextCursor,
+      };
+    },
+
+    //DIRECT MESSAGING QUERIES
+
+    //QUERY: conversations(cursor: ConversationsCursorInput): ConversationsPage!
+    //Purpose: Fetch paginated conversations for current user (newest first)
+    //Auth: Authenticated users only
+    conversations: async (_, args, context) => {
+      requireAuth(context);
+
+      const conversations = await conversationsCollection();
+      const limit = args.cursor?.limit || 20;
+      const cursor = args.cursor?.cursor;
+
+      const currentUserId = context.currentUser._id.toString();
+
+      // Build query for cursor-based pagination
+      let query = {
+        'participantObjects.userId': currentUserId
+      };
+
+      if (cursor) {
+        query.updatedAt = { $lt: cursor };
+      }
+
+      // Fetch conversations sorted by updatedAt descending (newest first)
+      const fetchedConversations = await conversations
+        .find(query)
+        .sort({ updatedAt: -1 })
+        .limit(limit + 1)
+        .toArray();
+
+      // Determine if there are more conversations
+      const hasMore = fetchedConversations.length > limit;
+      const items = hasMore ? fetchedConversations.slice(0, limit) : fetchedConversations;
+      const nextCursor = hasMore ? items[items.length - 1].updatedAt : null;
+
+      return {
+        items,
+        nextCursor
+      };
+    },
+
+    //QUERY: conversationMessages(conversationId: String!, cursor: MessagesCursorInput): MessagesPage!
+    //Purpose: Fetch paginated messages for a specific conversation
+    //Auth: Only conversation participants can access
+    conversationMessages: async (_, args, context) => {
+      requireAuth(context);
+
+      if (!args.conversationId) {
+        throw new GraphQLError('conversationId is required', {
+          extensions: { code: 'BAD_USER_INPUT' }
+        });
+      }
+
+      helpers.checkArg(args.conversationId, 'string', 'id');
+
+      // Verify current user is participant
+      const conversations = await conversationsCollection();
+      const conversation = await conversations.findOne({
+        _id: new ObjectId(args.conversationId)
+      });
+
+      if (!conversation) {
+        throw new GraphQLError('Conversation not found', {
+          extensions: { code: 'NOT_FOUND' }
+        });
+      }
+
+      const currentUserId = context.currentUser._id.toString();
+      if (!conversation.participants.includes(currentUserId)) {
+        throw new GraphQLError('Access denied. You are not a participant in this conversation.', {
+          extensions: { code: 'FORBIDDEN' }
+        });
+      }
+
+      // Fetch messages with pagination
+      const messages = await directMessagesCollection();
+      const limit = args.cursor?.limit || 30;
+      const cursor = args.cursor?.cursor;
+
+      let query = { conversationId: args.conversationId };
+      if (cursor) {
+        query.createdAt = { $lt: cursor };
+      }
+
+      const fetchedMessages = await messages
+        .find(query)
+        .sort({ createdAt: -1 })
+        .limit(limit + 1)
+        .toArray();
+
+      const hasMore = fetchedMessages.length > limit;
+      const items = hasMore ? fetchedMessages.slice(0, limit) : fetchedMessages;
+      const nextCursor = hasMore ? items[items.length - 1].createdAt : null;
+
+      return {
+        items,
+        nextCursor
+      };
+    },
+
+    //QUERY: getOrCreateConversation(recipientId: String!): Conversation!
+    //Purpose: Get existing conversation with recipient, or create if doesn't exist
+    //Auth: Authenticated users only
+    getOrCreateConversation: async (_, args, context) => {
+      requireAuth(context);
+
+      if (!args.recipientId) {
+        throw new GraphQLError('recipientId is required', {
+          extensions: { code: 'BAD_USER_INPUT' }
+        });
+      }
+
+      helpers.checkArg(args.recipientId, 'string', 'id');
+
+      const currentUserId = context.currentUser._id.toString();
+
+      // Can't message yourself
+      if (currentUserId === args.recipientId) {
+        throw new GraphQLError('Cannot create conversation with yourself', {
+          extensions: { code: 'BAD_USER_INPUT' }
+        });
+      }
+
+      // Verify recipient exists
+      const users = await userCollection();
+      const recipient = await users.findOne({ _id: new ObjectId(args.recipientId) });
+
+      if (!recipient) {
+        throw new GraphQLError('Recipient not found', {
+          extensions: { code: 'NOT_FOUND' }
+        });
+      }
+
+      // Sort participants for consistent lookup
+      const participants = [currentUserId, args.recipientId].sort();
+
+      const conversations = await conversationsCollection();
+
+      // Try to find existing conversation
+      let conversation = await conversations.findOne({ participants });
+
+      if (!conversation) {
+        // Create new conversation
+        const now = new Date().toISOString();
+        const newConversation = {
+          participants,
+          participantObjects: [
+            { userId: currentUserId, unreadCount: 0, lastReadAt: now },
+            { userId: args.recipientId, unreadCount: 0, lastReadAt: now }
+          ],
+          lastMessage: null,
+          createdAt: now,
+          updatedAt: now
+        };
+
+        const result = await conversations.insertOne(newConversation);
+        conversation = { _id: result.insertedId, ...newConversation };
+      }
+
+      return conversation;
     },
 
     //QUERY: projects: [Project]
@@ -1463,6 +1734,162 @@ export const resolvers = {
     },
   },
 
+  //HOME FEED V2 FIELD RESOLVERS
+
+  Post: {
+    //FIELD: author
+    //Purpose: Resolve the author user object from userId
+    author: async (parentValue) => {
+      const users = await userCollection();
+      const author = await users.findOne({
+        _id: new ObjectId(parentValue.userId),
+      });
+
+      if (!author) {
+        console.warn(`Author not found for userId: ${parentValue.userId}`);
+        return {
+          _id: "unknown",
+          firstName: "Unknown",
+          lastName: "User",
+          email: "unknown@example.com",
+          role: "STUDENT",
+          department: "COMPUTER_SCIENCE",
+          bio: "User not found.",
+        };
+      }
+      return author;
+    },
+
+    //FIELD: viewerHasLiked
+    //Purpose: Check if the current authenticated user has liked this post
+    viewerHasLiked: async (parentValue, _, context) => {
+      if (!context.currentUser) {
+        return false;
+      }
+
+      const likes = await postLikesCollection();
+      const like = await likes.findOne({
+        postId: parentValue._id.toString(),
+        userId: context.currentUser._id.toString(),
+      });
+
+      return !!like;
+    },
+  },
+
+  PostComment: {
+    //FIELD: commenter
+    //Purpose: Resolve the commenter user object from userId
+    commenter: async (parentValue) => {
+      const users = await userCollection();
+      const commenter = await users.findOne({
+        _id: new ObjectId(parentValue.userId),
+      });
+
+      if (!commenter) {
+        console.warn(`Commenter not found for userId: ${parentValue.userId}`);
+        return {
+          _id: "unknown",
+          firstName: "Unknown",
+          lastName: "User",
+          email: "unknown@example.com",
+          role: "STUDENT",
+          department: "COMPUTER_SCIENCE",
+          bio: "User not found.",
+        };
+      }
+      return commenter;
+    },
+  },
+
+  //DIRECT MESSAGING FIELD RESOLVERS
+
+  Conversation: {
+    //FIELD: participants
+    //Purpose: Resolve participant user objects from participant IDs
+    participants: async (parent) => {
+      const users = await userCollection();
+      const participantIds = parent.participants.map(id => new ObjectId(id));
+      const userObjects = await users.find({ _id: { $in: participantIds } }).toArray();
+      return userObjects;
+    },
+
+    //FIELD: lastMessage
+    //Purpose: Resolve last message with sender user object
+    lastMessage: async (parent) => {
+      if (!parent.lastMessage) return null;
+
+      const users = await userCollection();
+      const sender = await users.findOne({ _id: new ObjectId(parent.lastMessage.senderId) });
+
+      if (!sender) {
+        console.warn(`Sender not found for lastMessage in conversation: ${parent._id}`);
+        return {
+          text: parent.lastMessage.text,
+          sender: {
+            _id: "unknown",
+            firstName: "Unknown",
+            lastName: "User",
+            email: "unknown@example.com",
+            role: "STUDENT",
+            department: "COMPUTER_SCIENCE",
+          },
+          timestamp: parent.lastMessage.timestamp
+        };
+      }
+
+      return {
+        text: parent.lastMessage.text,
+        sender,
+        timestamp: parent.lastMessage.timestamp
+      };
+    },
+
+    //FIELD: unreadCount
+    //Purpose: Return unread count for current user
+    unreadCount: (parent, _, context) => {
+      const currentUserId = context.currentUser?._id.toString();
+      if (!currentUserId) return 0;
+
+      const participantObj = parent.participantObjects.find(
+        p => p.userId === currentUserId
+      );
+      return participantObj?.unreadCount || 0;
+    }
+  },
+
+  DirectMessage: {
+    //FIELD: sender
+    //Purpose: Resolve sender user object from senderId
+    sender: async (parent) => {
+      const users = await userCollection();
+      const sender = await users.findOne({ _id: new ObjectId(parent.senderId) });
+
+      if (!sender) {
+        console.warn(`Sender not found for message: ${parent._id}`);
+        return {
+          _id: "unknown",
+          firstName: "Unknown",
+          lastName: "User",
+          email: "unknown@example.com",
+          role: "STUDENT",
+          department: "COMPUTER_SCIENCE",
+        };
+      }
+
+      return sender;
+    },
+
+    //FIELD: isRead
+    //Purpose: Check if current user has read this message
+    isRead: (parent, _, context) => {
+      const currentUserId = context.currentUser?._id.toString();
+      if (!currentUserId) return false;
+
+      return parent.readBy.includes(currentUserId);
+    }
+  },
+
   Mutation: {
     //MUTATION: addUser
     //Purpose: Add new user object to user database
@@ -1475,12 +1902,11 @@ export const resolvers = {
         !args.firstName ||
         !args.lastName ||
         !args.email ||
-        !args.password ||
         !args.role ||
         !args.department
       ) {
         throw new GraphQLError(
-          "To create a user, their first name, last name, email, password, role and department must be provided.",
+          "To create a user, their first name, last name, email, role and department must be provided.",
           {
             extensions: { code: "BAD_USER_INPUT" },
           }
@@ -1492,7 +1918,6 @@ export const resolvers = {
         "firstName",
         "lastName",
         "email",
-        "password",
         "role",
         "department",
         "bio",
@@ -1510,7 +1935,6 @@ export const resolvers = {
       helpers.checkArg(args.firstName, "string", "name");
       helpers.checkArg(args.lastName, "string", "name");
       helpers.checkArg(args.email, "string", "email");
-      helpers.checkArg(args.password, "string", "password");
       helpers.checkArg(args.role, "string", "role");
       helpers.checkArg(args.department, "string", "department");
       if (args.bio) {
@@ -1529,21 +1953,12 @@ export const resolvers = {
         });
       }
 
-      // Creates a new user in Firebase Authentication with email, password, and display name.
-      // Managed by Firebase for authentication purposes.
-      const userRecord = await admin.auth().createUser({
-        email: args.email,
-        password: args.password,
-        displayName: `${args.firstName} ${args.lastName}`,
-      });
-
       // Create a User object, toAddUser, using the arguments, set objectId
       const toAddUser = {
         _id: new ObjectId(),
         firstName: args.firstName.trim(),
         lastName: args.lastName.trim(),
         email: args.email.trim(),
-        // password: await bcrypt.hash(args.password.trim(), 10),
         role: args.role.trim().toUpperCase(),
         department: args.department.trim().toUpperCase(),
         bio: args.bio ? args.bio.trim() : null, //If bio exists, trim, else, null
@@ -1585,10 +2000,9 @@ export const resolvers = {
         );
       }
 
-      await redisClient.flushAll();
-      //Return user without exposing password
-      const { password, ...safeUser } = toAddUser; //Destructure: extract password, gather the rest of properties into safeuser
-      return safeUser;
+      // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
+      //Return user
+      return toAddUser;
     },
 
     // MUTATION: editUser
@@ -1609,7 +2023,6 @@ export const resolvers = {
         "firstName",
         "lastName",
         "email",
-        "password",
         "role",
         "department",
         "bio",
@@ -1659,34 +2072,6 @@ export const resolvers = {
         updateFields.email = args.email.trim();
       }
 
-      // Password update
-      if (args.password) {
-        try {
-          const firebaseUser = await admin
-            .auth()
-            .getUserByEmail(userToUpdate.email);
-          await admin.auth().updateUser(firebaseUser.uid, {
-            password: args.password.trim(),
-          });
-        } catch (error) {
-          if (error.code === "auth/user-not-found") {
-            throw new GraphQLError(
-              "The user does not exist in Firebase Authentication. Password update failed.",
-              { extensions: { code: "BAD_USER_INPUT", cause: error.message } }
-            );
-          }
-          throw new GraphQLError(
-            "Failed to update the user's password in Firebase Authentication.",
-            {
-              extensions: {
-                code: "INTERNAL_SERVER_ERROR",
-                cause: error.message,
-              },
-            }
-          );
-        }
-      }
-
       // Role update
       if (args.role) {
         helpers.checkArg(args.role, "string", "role");
@@ -1733,11 +2118,251 @@ export const resolvers = {
         );
       }
 
-      await redisClient.flushAll();
-      // Return updated user without exposing password
+      // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
+      // Return updated user
       const updatedUser = { ...userToUpdate, ...updateFields };
-      const { password, ...safeUser } = updatedUser;
-      return safeUser;
+      return updatedUser;
+    },
+
+    // MUTATION: updateMyProfile
+    // Purpose: Update the current authenticated user's profile
+    // Auth: Uses context.currentUser (restricted to own profile)
+    // Cache: Clear user caches after update
+
+    updateMyProfile: async (_, args, context) => {
+      // Check authentication
+      if (!context.currentUser || !context.currentUser._id) {
+        throw new GraphQLError("You must be logged in to update your profile.", {
+          extensions: { code: "UNAUTHENTICATED" },
+        });
+      }
+
+      const userId = new ObjectId(context.currentUser._id);
+      const input = args.input || {};
+
+      // Helper function to validate URLs
+      const validateUrl = (url, fieldName) => {
+        if (!url) return null; // Empty is okay
+        const trimmed = url.trim();
+        if (trimmed === "") return null; // Convert empty string to null
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+          throw new GraphQLError(
+            `${fieldName} must start with http:// or https://`,
+            { extensions: { code: "BAD_USER_INPUT" } }
+          );
+        }
+        return trimmed;
+      };
+
+      // Build updateFields object with dotted paths for nested objects
+      const updateFields = {};
+
+      // Headline
+      if (input.headline !== undefined) {
+        const trimmed = input.headline ? input.headline.trim() : null;
+        updateFields.headline = trimmed === "" ? null : trimmed;
+      }
+
+      // Location
+      if (input.location !== undefined) {
+        const trimmed = input.location ? input.location.trim() : null;
+        updateFields.location = trimmed === "" ? null : trimmed;
+      }
+
+      // City
+      if (input.city !== undefined) {
+        const trimmed = input.city ? input.city.trim() : null;
+        updateFields.city = trimmed === "" ? null : trimmed;
+      }
+
+      // Bio
+      if (input.bio !== undefined) {
+        const trimmed = input.bio ? input.bio.trim() : null;
+        updateFields.bio = trimmed === "" ? null : trimmed;
+      }
+
+      // ProfileLinks - use dotted paths for partial updates
+      if (input.profileLinks) {
+        if (input.profileLinks.github !== undefined) {
+          updateFields["profileLinks.github"] = validateUrl(
+            input.profileLinks.github,
+            "GitHub URL"
+          );
+        }
+        if (input.profileLinks.linkedin !== undefined) {
+          updateFields["profileLinks.linkedin"] = validateUrl(
+            input.profileLinks.linkedin,
+            "LinkedIn URL"
+          );
+        }
+        if (input.profileLinks.website !== undefined) {
+          updateFields["profileLinks.website"] = validateUrl(
+            input.profileLinks.website,
+            "Website URL"
+          );
+        }
+      }
+
+      // Profile Photo
+      if (input.profilePhoto !== undefined) {
+        updateFields.profilePhoto = validateUrl(input.profilePhoto, "Profile photo URL");
+      }
+
+      // Cover Photo
+      if (input.coverPhoto !== undefined) {
+        updateFields.coverPhoto = validateUrl(input.coverPhoto, "Cover photo URL");
+      }
+
+      // Featured Project ID
+      if (input.featuredProjectId !== undefined) {
+        const trimmed = input.featuredProjectId ? input.featuredProjectId.trim() : null;
+        updateFields.featuredProjectId = trimmed === "" ? null : trimmed;
+      }
+
+      // Skills
+      if (input.skills !== undefined) {
+        if (!Array.isArray(input.skills)) {
+          throw new GraphQLError("Skills must be an array.", {
+            extensions: { code: "BAD_USER_INPUT" },
+          });
+        }
+
+        // Sanitize: trim, remove empty strings, enforce max count and length, de-dupe
+        const MAX_SKILLS = 30;
+        const MAX_SKILL_LENGTH = 32;
+
+        const sanitizedSkills = input.skills
+          .map(skill => skill ? skill.trim() : '')
+          .filter(skill => skill.length > 0)
+          .slice(0, MAX_SKILLS)
+          .map(skill => {
+            if (skill.length > MAX_SKILL_LENGTH) {
+              throw new GraphQLError(`Skill "${skill}" exceeds maximum length of ${MAX_SKILL_LENGTH} characters.`, {
+                extensions: { code: "BAD_USER_INPUT" },
+              });
+            }
+            return skill;
+          });
+
+        // De-duplicate case-insensitively
+        const uniqueSkills = [];
+        const seenLower = new Set();
+        for (const skill of sanitizedSkills) {
+          const lowerSkill = skill.toLowerCase();
+          if (!seenLower.has(lowerSkill)) {
+            seenLower.add(lowerSkill);
+            uniqueSkills.push(skill);
+          }
+        }
+
+        updateFields.skills = uniqueSkills;
+      }
+
+      // Education
+      if (input.education !== undefined) {
+        if (!Array.isArray(input.education)) {
+          throw new GraphQLError("Education must be an array.", {
+            extensions: { code: "BAD_USER_INPUT" },
+          });
+        }
+
+        const MAX_EDUCATION = 10;
+        if (input.education.length > MAX_EDUCATION) {
+          throw new GraphQLError(`Maximum ${MAX_EDUCATION} education entries allowed.`, {
+            extensions: { code: "BAD_USER_INPUT" },
+          });
+        }
+
+        // Validate each education entry
+        const sanitizedEducation = input.education.map(edu => {
+          if (!edu.institution || !edu.institution.trim()) {
+            throw new GraphQLError("Institution name is required for education entries.", {
+              extensions: { code: "BAD_USER_INPUT" },
+            });
+          }
+
+          return {
+            institution: edu.institution.trim(),
+            degree: edu.degree ? edu.degree.trim() : null,
+            field: edu.field ? edu.field.trim() : null,
+            startDate: edu.startDate ? edu.startDate.trim() : null,
+            endDate: edu.endDate ? edu.endDate.trim() : null,
+            location: edu.location ? edu.location.trim() : null,
+            description: edu.description ? edu.description.trim() : null,
+          };
+        });
+
+        updateFields.education = sanitizedEducation;
+      }
+
+      // Experience
+      if (input.experience !== undefined) {
+        if (!Array.isArray(input.experience)) {
+          throw new GraphQLError("Experience must be an array.", {
+            extensions: { code: "BAD_USER_INPUT" },
+          });
+        }
+
+        const MAX_EXPERIENCE = 10;
+        if (input.experience.length > MAX_EXPERIENCE) {
+          throw new GraphQLError(`Maximum ${MAX_EXPERIENCE} experience entries allowed.`, {
+            extensions: { code: "BAD_USER_INPUT" },
+          });
+        }
+
+        // Validate each experience entry
+        const sanitizedExperience = input.experience.map(exp => {
+          if (!exp.title || !exp.title.trim()) {
+            throw new GraphQLError("Title is required for experience entries.", {
+              extensions: { code: "BAD_USER_INPUT" },
+            });
+          }
+
+          return {
+            title: exp.title.trim(),
+            company: exp.company ? exp.company.trim() : null,
+            location: exp.location ? exp.location.trim() : null,
+            startDate: exp.startDate ? exp.startDate.trim() : null,
+            endDate: exp.endDate ? exp.endDate.trim() : null,
+            description: exp.description ? exp.description.trim() : null,
+          };
+        });
+
+        updateFields.experience = sanitizedExperience;
+      }
+
+      // Ensure at least one field is being updated
+      if (Object.keys(updateFields).length === 0) {
+        throw new GraphQLError("No profile fields to update.", {
+          extensions: { code: "BAD_USER_INPUT" },
+        });
+      }
+
+      // Update user in database
+      const users = await userCollection();
+      const result = await users.updateOne(
+        { _id: userId },
+        { $set: updateFields }
+      );
+
+      if (result.matchedCount === 0) {
+        throw new GraphQLError("Failed to update profile. User not found.", {
+          extensions: { code: "INTERNAL_SERVER_ERROR" },
+        });
+      }
+
+      // Clear targeted Redis cache keys (never flushAll)
+      try {
+        await redisClient.del(`user:${context.currentUser._id}`);
+        await redisClient.del("users");
+      } catch (error) {
+        // Log but don't fail the mutation if cache clear fails
+        console.error("Redis cache clear failed:", error);
+      }
+
+      // Fetch and return updated user
+      const updatedUser = await users.findOne({ _id: userId });
+      return updatedUser;
     },
 
     // MUTATION: removeUser
@@ -1863,7 +2488,7 @@ export const resolvers = {
         console.log(
           "Redis caches cleared for applications, updates, and comments."
         );
-        await redisClient.flushAll();
+        // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
       } catch (error) {
         console.error("Failed to update Redis caches:", error);
         throw new GraphQLError(
@@ -1885,7 +2510,10 @@ export const resolvers = {
     // Purpose: Create a new project and add it to MongoDB
     // Cache: Add the project to the Redis cache; delete all project cache
 
-    addProject: async (_, args) => {
+    addProject: async (_, args, context) => {
+      // Authorization check
+      resolvers.requireRole(context, ['PROFESSOR', 'ADMIN']);
+
       // Check if required fields are present
       if (!args.title || !args.department) {
         throw new GraphQLError(
@@ -1963,7 +2591,7 @@ export const resolvers = {
         await redisClient.set(cacheKey, JSON.stringify(newProject));
         // Delete the projects cache, as it's no longer accurate
         await redisClient.del("projects");
-        await redisClient.flushAll();
+        // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
         throw new GraphQLError(
@@ -1984,7 +2612,10 @@ export const resolvers = {
     // Purpose: Edit an existing project by ID
     // Cache: Update the Redis cache accordingly
 
-    editProject: async (_, args) => {
+    editProject: async (_, args, context) => {
+      // Authorization check
+      resolvers.requireRole(context, ['PROFESSOR', 'ADMIN']);
+
       // Check if required fields are present
       if (!args._id) {
         throw new GraphQLError("The _id field is required.", {
@@ -2109,7 +2740,7 @@ export const resolvers = {
       try {
         // Delete the projects cache as it's now out of date
         await redisClient.del("projects");
-        await redisClient.flushAll();
+        // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
         //Update the projects's individual cache;
         await redisClient.set(
           `project:${args._id}`,
@@ -2132,11 +2763,126 @@ export const resolvers = {
       return updatedProject;
     },
 
+    // MUTATION: updateProjectPortfolio
+    // Purpose: Update project portfolio details (URLs, tech stack)
+    // Auth: Only project professors/students can update
+    // Cache: Clear project caches after update
+
+    updateProjectPortfolio: async (_, args, context) => {
+      // Check authentication
+      if (!context.currentUser || !context.currentUser._id) {
+        throw new GraphQLError("You must be logged in to update project portfolio.", {
+          extensions: { code: "UNAUTHENTICATED" },
+        });
+      }
+
+      const { projectId, input } = args;
+
+      if (!projectId) {
+        throw new GraphQLError("Project ID is required.", {
+          extensions: { code: "BAD_USER_INPUT" },
+        });
+      }
+
+      const projectObjectId = new ObjectId(projectId);
+      const projects = await projectCollection();
+
+      // Get the project
+      const project = await projects.findOne({ _id: projectObjectId });
+
+      if (!project) {
+        throw new GraphQLError("Project not found.", {
+          extensions: { code: "BAD_USER_INPUT" },
+        });
+      }
+
+      // Check authorization: user must be in professors or students array
+      const userId = context.currentUser._id.toString();
+      const isProfessor = project.professors?.some(profId => profId.toString() === userId);
+      const isStudent = project.students?.some(studId => studId.toString() === userId);
+
+      if (!isProfessor && !isStudent) {
+        throw new GraphQLError("You are not authorized to update this project.", {
+          extensions: { code: "FORBIDDEN" },
+        });
+      }
+
+      // Helper function to validate URLs
+      const validateUrl = (url, fieldName) => {
+        if (!url) return null;
+        const trimmed = url.trim();
+        if (trimmed === "") return null;
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+          throw new GraphQLError(
+            `${fieldName} must start with http:// or https://`,
+            { extensions: { code: "BAD_USER_INPUT" } }
+          );
+        }
+        return trimmed;
+      };
+
+      // Build updateFields object
+      const updateFields = {};
+
+      if (input.githubUrl !== undefined) {
+        updateFields.githubUrl = validateUrl(input.githubUrl, "GitHub URL");
+      }
+
+      if (input.liveUrl !== undefined) {
+        updateFields.liveUrl = validateUrl(input.liveUrl, "Live URL");
+      }
+
+      if (input.demoVideoUrl !== undefined) {
+        updateFields.demoVideoUrl = validateUrl(input.demoVideoUrl, "Demo Video URL");
+      }
+
+      if (input.techStack !== undefined) {
+        // Filter out empty strings and trim
+        const cleanedTechStack = input.techStack
+          .map(tech => tech ? tech.trim() : "")
+          .filter(tech => tech !== "");
+        updateFields.techStack = cleanedTechStack.length > 0 ? cleanedTechStack : null;
+      }
+
+      // Ensure at least one field is being updated
+      if (Object.keys(updateFields).length === 0) {
+        throw new GraphQLError("No portfolio fields to update.", {
+          extensions: { code: "BAD_USER_INPUT" },
+        });
+      }
+
+      // Update project in database
+      const result = await projects.updateOne(
+        { _id: projectObjectId },
+        { $set: updateFields }
+      );
+
+      if (result.matchedCount === 0) {
+        throw new GraphQLError("Failed to update project.", {
+          extensions: { code: "INTERNAL_SERVER_ERROR" },
+        });
+      }
+
+      // Clear Redis cache
+      try {
+        await redisClient.del(`project:${projectId}`);
+        await redisClient.del("projects");
+      } catch (error) {
+        console.error("Redis cache clear failed:", error);
+      }
+
+      // Return updated project
+      return await projects.findOne({ _id: projectObjectId });
+    },
+
     // MUTATION: removeProject
     // Purpose: Remove the project from the database; remove related applications and updates
     // Cache: Remove the project to the Redis cache; delete applications/update caches
 
-    removeProject: async (_, args) => {
+    removeProject: async (_, args, context) => {
+      // Authorization check
+      resolvers.requireRole(context, ['PROFESSOR', 'ADMIN']);
+
       // Validate input
       if (!args._id) {
         throw new GraphQLError("The _id field is required.", {
@@ -2228,7 +2974,7 @@ export const resolvers = {
         console.log(
           "Redis caches cleared for project, updates, and applications."
         );
-        await redisClient.flushAll();
+        // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
       } catch (error) {
         console.error("Failed to update Redis caches:", error);
         throw new GraphQLError(
@@ -2250,7 +2996,10 @@ export const resolvers = {
     // Purpose: Create a new update and add it to MongoDB
     // Cache: Add the update to the Redis cache; delete all updates cache
 
-    addUpdate: async (_, args) => {
+    addUpdate: async (_, args, context) => {
+      // Authorization check
+      resolvers.requireRole(context, ['PROFESSOR', 'ADMIN']);
+
       // Check if required fields are present
       if (!args.posterId || !args.subject || !args.content || !args.projectId) {
         throw new GraphQLError(
@@ -2327,7 +3076,7 @@ export const resolvers = {
         const cacheKey = `update:${updateToAdd._id}`;
         // Delete cache for updates, as these are no longer accurate
         await redisClient.del("updates");
-        await redisClient.flushAll();
+        // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
         await redisClient.set(cacheKey, JSON.stringify(updateToAdd));
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
@@ -2350,7 +3099,10 @@ export const resolvers = {
     // Purpose: Edit an existing update by ID
     // Cache: set individual cache and delete collective update cache; will be updated next query
 
-    editUpdate: async (_, args) => {
+    editUpdate: async (_, args, context) => {
+      // Authorization check
+      resolvers.requireRole(context, ['PROFESSOR', 'ADMIN']);
+
       // Validate required fields
       helpers.checkArg(args._id, "string", "id");
 
@@ -2431,7 +3183,7 @@ export const resolvers = {
       // Update Redis cache
       try {
         await redisClient.del("updates"); // Clear updates cache
-        await redisClient.flushAll();
+        // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
         await redisClient.set(
           `update:${args._id}`,
           JSON.stringify(updateToUpdate)
@@ -2454,7 +3206,10 @@ export const resolvers = {
     // Purpose: Remove a update by ID; delete related comments
     // Cache: Delete cache for individual and collective update; delete collective comment and individual comment cache
 
-    removeUpdate: async (_, args) => {
+    removeUpdate: async (_, args, context) => {
+      // Authorization check
+      resolvers.requireRole(context, ['PROFESSOR', 'ADMIN']);
+
       // Check if required fields are present
       if (!args._id) {
         throw new GraphQLError("The _id field is required.", {
@@ -2535,7 +3290,7 @@ export const resolvers = {
         // Delete the general comments cache as it's outdated
         await redisClient.del("comments");
 
-        await redisClient.flushAll();
+        // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
 
         // Delete individual comment caches
         for (let commentId of commentIds) {
@@ -2564,7 +3319,18 @@ export const resolvers = {
     // Purpose: Create a new application and add it to MongoDB
     // Cache: Add the application to the Redis cache; delete all applications cache
 
-    addApplication: async (_, args) => {
+    addApplication: async (_, args, context) => {
+      // Authorization check
+      resolvers.requireAuth(context);
+
+      // Check if applicantId matches currentUser._id (unless ADMIN)
+      if (context.currentUser.role !== 'ADMIN' &&
+          args.applicantId !== context.currentUser._id.toString()) {
+        throw new GraphQLError('You can only create applications for yourself', {
+          extensions: { code: 'FORBIDDEN' }
+        });
+      }
+
       // Check if required fields are present
       if (!args.applicantId || !args.projectId) {
         throw new GraphQLError(
@@ -2657,7 +3423,7 @@ export const resolvers = {
         const cacheKey = `application:${applicationToAdd._id}`;
         //Delete the applications cache, as this is now out of date.'
         await redisClient.del("applications");
-        await redisClient.flushAll();
+        // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
         await redisClient.set(cacheKey, JSON.stringify(applicationToAdd));
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
@@ -2772,7 +3538,7 @@ export const resolvers = {
       try {
         // Delete the outdated cache
         await redisClient.del("applications");
-        await redisClient.flushAll();
+        // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
 
         // Set the updated application in the cache
         const cacheKey = `application:${args._id}`;
@@ -2877,7 +3643,7 @@ export const resolvers = {
 
         // Delete the general comments cache as it's outdated
         await redisClient.del("comments");
-        await redisClient.flushAll();
+        // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
 
         // Delete individual comment caches
         for (let commentId of commentIds) {
@@ -2901,7 +3667,10 @@ export const resolvers = {
       return deletedApplication;
     },
 
-    changeApplicationStatus: async (_, args) => {
+    changeApplicationStatus: async (_, args, context) => {
+      // Authorization check
+      resolvers.requireRole(context, ['PROFESSOR', 'ADMIN']);
+
       if (!args._id || !args.status) {
         throw new GraphQLError("The _id and status fields are required.", {
           extensions: { code: "BAD_USER_INPUT" },
@@ -2948,7 +3717,7 @@ export const resolvers = {
         { returnDocument: "after" }
       );
 
-      await redisClient.flushAll();
+      // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
 
       return result;
     },
@@ -2957,7 +3726,18 @@ export const resolvers = {
     // Purpose: Create a new commnet and add it to MongoDB
     // Cache: Add the comment to the Redis cache; delete all comments cache
 
-    addComment: async (_, args) => {
+    addComment: async (_, args, context) => {
+      // Authorization check
+      resolvers.requireAuth(context);
+
+      // Check if commenterId matches currentUser._id (unless ADMIN)
+      if (context.currentUser.role !== 'ADMIN' &&
+          args.commenterId !== context.currentUser._id.toString()) {
+        throw new GraphQLError('You can only create comments as yourself', {
+          extensions: { code: 'FORBIDDEN' }
+        });
+      }
+
       // Check if required fields are present
       if (!args.commenterId || !args.destinationId || !args.content) {
         throw new GraphQLError(
@@ -3036,7 +3816,7 @@ export const resolvers = {
         console.log("Updating Redis cache for comment...");
         const cacheKey = `comment:${newComment._id}`;
         await redisClient.del("comments");
-        await redisClient.flushAll();
+        // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
         await redisClient.set(cacheKey, JSON.stringify(newComment));
 
         console.log("Redis cache updated successfully.");
@@ -3061,7 +3841,10 @@ export const resolvers = {
     // Purpose: Edit an existing comment by ID
     // Cache: set individual cache and delete collective comment cache; will be updated next query
 
-    editComment: async (_, args) => {
+    editComment: async (_, args, context) => {
+      // Authorization check
+      resolvers.requireAuth(context);
+
       // Check if required fields are present
       if (!args._id) {
         throw new GraphQLError("The _id field is required.", {
@@ -3103,6 +3886,14 @@ export const resolvers = {
             extensions: { code: "BAD_USER_INPUT" },
           }
         );
+      }
+
+      // Check if commenterId matches currentUser._id (unless ADMIN)
+      if (context.currentUser.role !== 'ADMIN' &&
+          commentToUpdate.commenterId.toString() !== context.currentUser._id.toString()) {
+        throw new GraphQLError('You can only edit your own comments', {
+          extensions: { code: 'FORBIDDEN' }
+        });
       }
 
       // Object to hold fields to update
@@ -3153,7 +3944,7 @@ export const resolvers = {
       // Update Redis cache
       try {
         await redisClient.del("comments");
-        await redisClient.flushAll();
+        // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
         const cacheKey = `comment:${commentToUpdate._id}`;
         await redisClient.set(cacheKey, JSON.stringify(updatedComment));
       } catch (error) {
@@ -3176,7 +3967,10 @@ export const resolvers = {
     // Purpose: Remove a comment by ID
     // Cache: Delete cache for individual and collective application; delete collective comment and individual comment cache
 
-    removeComment: async (_, args) => {
+    removeComment: async (_, args, context) => {
+      // Authorization check
+      resolvers.requireAuth(context);
+
       // Check if required fields are present
       if (!args._id) {
         throw new GraphQLError("The _id field is required.", {
@@ -3202,6 +3996,29 @@ export const resolvers = {
       //Pull the commentCollection
       const comments = await commentCollection();
 
+      //First, find the comment to check ownership
+      const commentToDelete = await comments.findOne({
+        _id: new ObjectId(args._id),
+      });
+
+      if (!commentToDelete) {
+        throw new GraphQLError(
+          "Could not find comment with the provided ID.",
+          {
+            //Similar status code: 404
+            extensions: { code: "BAD_USER_INPUT" },
+          }
+        );
+      }
+
+      // Check if commenterId matches currentUser._id (unless ADMIN)
+      if (context.currentUser.role !== 'ADMIN' &&
+          commentToDelete.commenterId.toString() !== context.currentUser._id.toString()) {
+        throw new GraphQLError('You can only delete your own comments', {
+          extensions: { code: 'FORBIDDEN' }
+        });
+      }
+
       //Use findOneAndDelete to remove the comment from the collection, based on matching the _ids (arg and comment)
       const deletedComment = await comments.findOneAndDelete({
         _id: new ObjectId(args._id),
@@ -3210,7 +4027,7 @@ export const resolvers = {
       //Confirm deletedComment the deletedComment has a value. If not, throw a GraphQLError
       if (!deletedComment) {
         throw new GraphQLError(
-          "Could not find or delete comment with the provided ID.",
+          "Could not delete comment with the provided ID.",
           {
             //Similar status code: 404
             extensions: { code: "BAD_USER_INPUT" },
@@ -3224,7 +4041,7 @@ export const resolvers = {
       try {
         await redisClient.del(`comment:${args._id}`);
         await redisClient.del("comments");
-        await redisClient.flushAll();
+        // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
         throw new GraphQLError(
@@ -3240,23 +4057,469 @@ export const resolvers = {
     },
 
     //LOGIN
-    login: async (_, { token }) => {
-      try {
-        const decodedToken = await admin.auth().verifyIdToken(token);
-        const uid = decodedToken.uid;
-        const email = decodedToken.email;
-        const users = await userCollection();
-        const user = await users.findOne({ email: email });
-        return {
-          message: "Token verified successfully",
-          _id: user._id,
-          name: `${user.firstName} ${user.lastName}`,
-          email,
-          role: user.role,
-        };
-      } catch (error) {
-        throw new Error("Invalid or expired token");
+    login: async (_, args, context) => {
+      // Token is already verified in context (app.js)
+      // Just return the current user if authenticated
+      if (!context.currentUser) {
+        throw new GraphQLError('Authentication failed', {
+          extensions: { code: 'UNAUTHENTICATED' }
+        });
       }
+
+      return {
+        message: "Login successful",
+        _id: context.currentUser._id,
+        name: `${context.currentUser.firstName} ${context.currentUser.lastName}`,
+        email: context.currentUser.email,
+        role: context.currentUser.role
+      };
+    },
+
+    //HOME FEED V2 MUTATIONS
+
+    //MUTATION: createPost
+    //Purpose: Create a new post with optional media
+    //Cache: Invalidate feed cache
+    //Auth: All authenticated users can post
+    createPost: async (_, args, context) => {
+      requireAuth(context);
+
+      if (!args.text || !args.text.trim()) {
+        throw new GraphQLError("Post text is required.", {
+          extensions: { code: "BAD_USER_INPUT" },
+        });
+      }
+
+      const posts = await postCollection();
+      const now = new Date().toISOString();
+
+      const newPost = {
+        userId: context.currentUser._id.toString(),
+        text: args.text.trim(),
+        media: args.media || [],
+        createdAt: now,
+        updatedAt: now,
+        likeCount: 0,
+        commentCount: 0,
+      };
+
+      const result = await posts.insertOne(newPost);
+
+      if (!result.acknowledged) {
+        throw new GraphQLError("Failed to create post.", {
+          extensions: { code: "INTERNAL_SERVER_ERROR" },
+        });
+      }
+
+      // Invalidate feed cache (optional)
+      try {
+        await redisClient.del("feed:*");
+        console.log("Feed cache invalidated after post creation.");
+      } catch (error) {
+        console.error("Failed to invalidate feed cache:", error);
+      }
+
+      // Return the newly created post with _id
+      return {
+        _id: result.insertedId.toString(),
+        ...newPost,
+      };
+    },
+
+    //MUTATION: toggleLike
+    //Purpose: Like or unlike a post (toggle)
+    //Cache: Update post cache
+    //Auth: All authenticated users
+    toggleLike: async (_, args, context) => {
+      requireAuth(context);
+
+      if (!args.postId) {
+        throw new GraphQLError("The postId field is required.", {
+          extensions: { code: "BAD_USER_INPUT" },
+        });
+      }
+
+      helpers.checkArg(args.postId, "string", "id");
+
+      const posts = await postCollection();
+      const likes = await postLikesCollection();
+      const userId = context.currentUser._id.toString();
+      const postId = args.postId;
+
+      // Check if post exists
+      const post = await posts.findOne({ _id: new ObjectId(postId) });
+      if (!post) {
+        throw new GraphQLError("Post not found.", {
+          extensions: { code: "NOT_FOUND" },
+        });
+      }
+
+      // Check if user has already liked this post
+      const existingLike = await likes.findOne({ postId, userId });
+
+      if (existingLike) {
+        // Unlike: Remove the like
+        await likes.deleteOne({ postId, userId });
+        await posts.updateOne(
+          { _id: new ObjectId(postId) },
+          { $inc: { likeCount: -1 }, $set: { updatedAt: new Date().toISOString() } }
+        );
+      } else {
+        // Like: Add the like
+        await likes.insertOne({
+          postId,
+          userId,
+          createdAt: new Date().toISOString(),
+        });
+        await posts.updateOne(
+          { _id: new ObjectId(postId) },
+          { $inc: { likeCount: 1 }, $set: { updatedAt: new Date().toISOString() } }
+        );
+      }
+
+      // Fetch updated post
+      const updatedPost = await posts.findOne({ _id: new ObjectId(postId) });
+
+      return updatedPost;
+    },
+
+    //MUTATION: addPostComment
+    //Purpose: Add a comment to a post
+    //Cache: Invalidate comments cache for this post
+    //Auth: All authenticated users
+    addPostComment: async (_, args, context) => {
+      requireAuth(context);
+
+      if (!args.postId) {
+        throw new GraphQLError("The postId field is required.", {
+          extensions: { code: "BAD_USER_INPUT" },
+        });
+      }
+
+      if (!args.text || !args.text.trim()) {
+        throw new GraphQLError("Comment text is required.", {
+          extensions: { code: "BAD_USER_INPUT" },
+        });
+      }
+
+      helpers.checkArg(args.postId, "string", "id");
+
+      const posts = await postCollection();
+      const comments = await postCommentsCollection();
+
+      // Check if post exists
+      const post = await posts.findOne({ _id: new ObjectId(args.postId) });
+      if (!post) {
+        throw new GraphQLError("Post not found.", {
+          extensions: { code: "NOT_FOUND" },
+        });
+      }
+
+      const now = new Date().toISOString();
+      const newComment = {
+        postId: args.postId,
+        userId: context.currentUser._id.toString(),
+        text: args.text.trim(),
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const result = await comments.insertOne(newComment);
+
+      if (!result.acknowledged) {
+        throw new GraphQLError("Failed to add comment.", {
+          extensions: { code: "INTERNAL_SERVER_ERROR" },
+        });
+      }
+
+      // Increment comment count on post
+      await posts.updateOne(
+        { _id: new ObjectId(args.postId) },
+        { $inc: { commentCount: 1 }, $set: { updatedAt: now } }
+      );
+
+      // Invalidate comments cache (optional)
+      try {
+        await redisClient.del(`comments:${args.postId}`);
+        console.log(`Comments cache invalidated for post ${args.postId}.`);
+      } catch (error) {
+        console.error("Failed to invalidate comments cache:", error);
+      }
+
+      // Return the newly created comment with _id
+      return {
+        _id: result.insertedId.toString(),
+        ...newComment,
+      };
+    },
+
+    deletePost: async (_, args, context) => {
+      requireAuth(context);
+
+      if (!args.postId) {
+        throw new GraphQLError("The postId field is required.", {
+          extensions: { code: "BAD_USER_INPUT" },
+        });
+      }
+
+      helpers.checkArg(args.postId, "string", "id");
+
+      const posts = await postCollection();
+      const comments = await postCommentsCollection();
+      const likes = await postLikesCollection();
+
+      // Check if post exists
+      const post = await posts.findOne({ _id: new ObjectId(args.postId) });
+      if (!post) {
+        throw new GraphQLError("Post not found.", {
+          extensions: { code: "NOT_FOUND" },
+        });
+      }
+
+      // Check if current user is the post author
+      if (post.userId !== context.currentUser._id.toString()) {
+        throw new GraphQLError("You can only delete your own posts.", {
+          extensions: { code: "FORBIDDEN" },
+        });
+      }
+
+      // Delete the post
+      const deleteResult = await posts.deleteOne({ _id: new ObjectId(args.postId) });
+
+      if (!deleteResult.deletedCount) {
+        throw new GraphQLError("Failed to delete post.", {
+          extensions: { code: "INTERNAL_SERVER_ERROR" },
+        });
+      }
+
+      // Delete all comments for this post
+      await comments.deleteMany({ postId: args.postId });
+
+      // Delete all likes for this post
+      await likes.deleteMany({ postId: args.postId });
+
+      // Invalidate feed cache
+      try {
+        await redisClient.del("feed:all");
+        console.log(`Feed cache invalidated after deleting post ${args.postId}.`);
+      } catch (error) {
+        console.error("Failed to invalidate feed cache:", error);
+      }
+
+      // Invalidate comments cache for this post
+      try {
+        await redisClient.del(`comments:${args.postId}`);
+      } catch (error) {
+        console.error("Failed to invalidate comments cache:", error);
+      }
+
+      return true;
+    },
+
+    //DIRECT MESSAGING MUTATIONS
+
+    //MUTATION: sendDirectMessage(recipientId: String!, text: String!): DirectMessage!
+    //Purpose: Send a direct message to another user
+    //Auth: All authenticated users
+    //Creates conversation if it doesn't exist
+    sendDirectMessage: async (_, args, context) => {
+      requireAuth(context);
+
+      if (!args.recipientId || !args.text?.trim()) {
+        throw new GraphQLError('recipientId and text are required', {
+          extensions: { code: 'BAD_USER_INPUT' }
+        });
+      }
+
+      helpers.checkArg(args.recipientId, 'string', 'id');
+      helpers.checkArg(args.text, 'string', 'content');
+
+      const currentUserId = context.currentUser._id.toString();
+
+      // Can't message yourself
+      if (currentUserId === args.recipientId) {
+        throw new GraphQLError('Cannot send message to yourself', {
+          extensions: { code: 'BAD_USER_INPUT' }
+        });
+      }
+
+      // Verify recipient exists
+      const users = await userCollection();
+      const recipient = await users.findOne({ _id: new ObjectId(args.recipientId) });
+
+      if (!recipient) {
+        throw new GraphQLError('Recipient not found', {
+          extensions: { code: 'NOT_FOUND' }
+        });
+      }
+
+      // Get or create conversation
+      const participants = [currentUserId, args.recipientId].sort();
+      const conversations = await conversationsCollection();
+
+      let conversation = await conversations.findOne({ participants });
+
+      if (!conversation) {
+        // Create new conversation
+        const now = new Date().toISOString();
+        const newConversation = {
+          participants,
+          participantObjects: [
+            { userId: currentUserId, unreadCount: 0, lastReadAt: now },
+            { userId: args.recipientId, unreadCount: 0, lastReadAt: now }
+          ],
+          lastMessage: null,
+          createdAt: now,
+          updatedAt: now
+        };
+
+        const result = await conversations.insertOne(newConversation);
+        conversation = { _id: result.insertedId, ...newConversation };
+      }
+
+      const conversationId = conversation._id.toString();
+
+      // Create message
+      const now = new Date().toISOString();
+      const messages = await directMessagesCollection();
+
+      const newMessage = {
+        conversationId,
+        senderId: currentUserId,
+        text: args.text.trim(),
+        readBy: [currentUserId], // Sender has read their own message
+        createdAt: now,
+        updatedAt: now
+      };
+
+      const messageResult = await messages.insertOne(newMessage);
+      newMessage._id = messageResult.insertedId.toString();
+
+      // Update conversation: lastMessage, increment recipient's unreadCount, updatedAt
+      await conversations.updateOne(
+        { _id: conversation._id },
+        {
+          $set: {
+            lastMessage: {
+              text: args.text.trim(),
+              senderId: currentUserId,
+              timestamp: now
+            },
+            updatedAt: now
+          },
+          $inc: {
+            'participantObjects.$[recipient].unreadCount': 1
+          }
+        },
+        {
+          arrayFilters: [{ 'recipient.userId': args.recipientId }]
+        }
+      );
+
+      // Cache invalidation
+      try {
+        await redisClient.del(`conversations:${currentUserId}`);
+        await redisClient.del(`conversations:${args.recipientId}`);
+        await redisClient.del(`conversation:${conversationId}`);
+        console.log(`Conversation caches invalidated after sending message.`);
+      } catch (error) {
+        console.error('Failed to invalidate conversation caches:', error);
+      }
+
+      // Socket.IO broadcast
+      try {
+        // Emit to conversation room (for active conversation view)
+        io.to(`conversation:${conversationId}`).emit('new_direct_message', {
+          message: newMessage,
+          conversationId
+        });
+
+        // Emit to recipient's DM room (for inbox updates)
+        io.to(`dm:${args.recipientId}`).emit('conversation_updated', {
+          conversationId,
+          lastMessage: {
+            text: args.text.trim(),
+            senderId: currentUserId,
+            timestamp: now
+          }
+        });
+
+        console.log(`[DM] Real-time events sent for message in conversation ${conversationId}`);
+      } catch (error) {
+        console.error('Failed to send Socket.IO events:', error);
+        // Don't fail the mutation if Socket.IO fails
+      }
+
+      return newMessage;
+    },
+
+    //MUTATION: markConversationAsRead(conversationId: String!): Conversation!
+    //Purpose: Mark all messages in a conversation as read by current user
+    //Auth: Only conversation participants
+    markConversationAsRead: async (_, args, context) => {
+      requireAuth(context);
+
+      if (!args.conversationId) {
+        throw new GraphQLError('conversationId is required', {
+          extensions: { code: 'BAD_USER_INPUT' }
+        });
+      }
+
+      helpers.checkArg(args.conversationId, 'string', 'id');
+
+      const currentUserId = context.currentUser._id.toString();
+      const conversations = await conversationsCollection();
+
+      // Verify conversation exists and user is participant
+      const conversation = await conversations.findOne({
+        _id: new ObjectId(args.conversationId),
+        participants: currentUserId
+      });
+
+      if (!conversation) {
+        throw new GraphQLError('Conversation not found or access denied', {
+          extensions: { code: 'FORBIDDEN' }
+        });
+      }
+
+      // Mark all messages as read by current user
+      const messages = await directMessagesCollection();
+      await messages.updateMany(
+        {
+          conversationId: args.conversationId,
+          readBy: { $ne: currentUserId }
+        },
+        {
+          $addToSet: { readBy: currentUserId }
+        }
+      );
+
+      // Reset unread count for current user
+      const now = new Date().toISOString();
+      await conversations.updateOne(
+        { _id: new ObjectId(args.conversationId) },
+        {
+          $set: {
+            'participantObjects.$[user].unreadCount': 0,
+            'participantObjects.$[user].lastReadAt': now
+          }
+        },
+        {
+          arrayFilters: [{ 'user.userId': currentUserId }]
+        }
+      );
+
+      // Invalidate cache
+      try {
+        await redisClient.del(`conversations:${currentUserId}`);
+        await redisClient.del(`conversation:${args.conversationId}`);
+        console.log(`Conversation caches invalidated after marking as read.`);
+      } catch (error) {
+        console.error('Failed to invalidate conversation caches:', error);
+      }
+
+      // Return updated conversation
+      return await conversations.findOne({ _id: new ObjectId(args.conversationId) });
     },
   },
 };

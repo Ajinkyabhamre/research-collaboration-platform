@@ -1,0 +1,242 @@
+@import "tailwindcss";
+
+/* Tailwind v4 Theme Configuration */
+@theme {
+  /* Stevens Brand Colors */
+  --color-stevensMaroon-50: #F9E8EC;
+  --color-stevensMaroon-100: #F3D1D9;
+  --color-stevensMaroon-200: #E7A3B3;
+  --color-stevensMaroon-300: #DB758D;
+  --color-stevensMaroon-400: #CF4767;
+  --color-stevensMaroon-500: #9D1535;
+  --color-stevensMaroon-600: #7E112A;
+  --color-stevensMaroon-700: #5E0D20;
+  --color-stevensMaroon-800: #3F0815;
+  --color-stevensMaroon-900: #1F040B;
+  --color-stevensMaroon: #9D1535; /* DEFAULT */
+
+  --color-stevensGray-50: #F7F7F7;
+  --color-stevensGray-100: #EFEFEF;
+  --color-stevensGray-200: #DFDFDF;
+  --color-stevensGray-300: #CFCFCF;
+  --color-stevensGray-400: #BFBFBF;
+  --color-stevensGray-500: #949594;
+  --color-stevensGray-600: #767676;
+  --color-stevensGray-700: #595959;
+  --color-stevensGray-800: #3B3B3B;
+  --color-stevensGray-900: #1E1E1E;
+  --color-stevensGray: #949594; /* DEFAULT */
+
+  /* Semantic colors */
+  --color-appBg: #F3F2EF;
+  --color-surface: #FFFFFF;
+  --color-border: #E5E7EB;
+  --color-borderLight: #F3F4F6;
+
+  --color-muted: #F3F4F6;
+  --color-muted-foreground: #6B7280;
+
+  --color-accent: #9D1535;
+  --color-accent-foreground: #FFFFFF;
+
+  --color-destructive: #EF4444;
+  --color-destructive-foreground: #FFFFFF;
+
+  --color-success: #10B981;
+  --color-success-foreground: #FFFFFF;
+}
+
+/* CSS Variables for Design System */
+:root {
+  /* Colors */
+  --brand: #9D1535;
+  --brand-foreground: #FFFFFF;
+  --brand-hover: #7E112A;
+
+  --background: #F3F2EF;
+  --foreground: #111827;
+
+  --card: #FFFFFF;
+  --card-foreground: #111827;
+
+  --border: #E5E7EB;
+  --border-light: #F3F4F6;
+
+  --muted: #F3F4F6;
+  --muted-foreground: #6B7280;
+
+  --accent: #9D1535;
+  --accent-foreground: #FFFFFF;
+
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+
+  --success: #10B981;
+  --success-foreground: #FFFFFF;
+
+  /* Radius */
+  --radius: 0.875rem;
+  --radius-sm: 0.5rem;
+  --radius-lg: 1rem;
+
+  /* Shadows */
+  --shadow-card: 0 0 0 1px rgba(0,0,0,0.08), 0 1px 2px 0 rgba(0,0,0,0.08);
+  --shadow-card-hover: 0 0 0 1px rgba(0,0,0,0.08), 0 4px 8px 0 rgba(0,0,0,0.12);
+  --shadow-elevated: 0 0 0 1px rgba(0,0,0,0.08), 0 2px 6px 0 rgba(0,0,0,0.1);
+
+  /* Z-index */
+  --z-dropdown: 50;
+  --z-modal: 100;
+  --z-toast: 200;
+  --z-tooltip: 300;
+}
+
+/* Base Styles */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+/* Focus visible styles for accessibility */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* LinkedIn-like card styling */
+.linkedin-card {
+  background-color: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.2s ease;
+}
+
+.linkedin-card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* Active navigation indicator */
+.nav-active {
+  color: var(--brand);
+  border-bottom: 2px solid var(--brand);
+}
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background-color: #F3F4F6;
+  border-radius: 0.25rem;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #D1D5DB;
+  border-radius: 0.25rem;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #9CA3AF;
+}
+
+/* Typography utilities */
+.prose {
+  color: var(--foreground);
+  max-width: 65ch;
+}
+
+.prose h1 {
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.prose h2 {
+  font-size: 1.875rem;
+  font-weight: 600;
+  line-height: 2.25rem;
+  margin-bottom: 0.875rem;
+}
+
+.prose h3 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.prose p {
+  margin-bottom: 1rem;
+  line-height: 1.625;
+}
+
+.prose a {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
+.prose a:hover {
+  color: var(--brand-hover);
+}
+
+/* Animation utilities */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Backdrop blur utility for sticky navs */
+.backdrop-blur-nav {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background-color: rgba(255, 255, 255, 0.85);
+}
+
+/* Skeleton loading animation */
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #F3F4F6 0%,
+    #E5E7EB 50%,
+    #F3F4F6 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+  border-radius: 0.375rem;
+}
+
+/* Gradient background for hero sections */
+.gradient-maroon {
+  background: linear-gradient(135deg, #9D1535 0%, #7E112A 100%);
+}

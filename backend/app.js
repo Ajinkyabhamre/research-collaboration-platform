@@ -1,29 +1,23 @@
-import { ApolloServer } from "@apollo/server";
-import { startStandaloneServer } from "@apollo/server/standalone";
-import admin from "firebase-admin";
+import { createClerkClient, verifyToken } from "@clerk/backend";
 import { createServer } from "http";
-import { typeDefs } from "./graphQl/typeDefs.js";
-import { resolvers } from "./graphQl/resolvers.js";
 import dotenv from "dotenv";
 import { Server as SocketServer } from "socket.io";
 import { addMessage, getMessagesByChannel } from "./messageOperations/index.js";
+import { users as usersCollection } from "./config/mongoCollections.js";
+import { ObjectId } from "mongodb";
+
 dotenv.config();
 
-const serviceAccount = {
-  type: "service_account",
-  project_id: process.env.FIREBASE_PROJECT_ID,
-  private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-  private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-  client_email: process.env.FIREBASE_CLIENT_EMAIL,
-  client_id: process.env.FIREBASE_CLIENT_ID,
-  auth_uri: "https://accounts.google.com/o/oauth2/auth",
-  token_uri: "https://oauth2.googleapis.com/token",
-  auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-  client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL,
-  universe_domain: process.env.FIREBASE_UNIVERSE_DOMAIN,
-};
+// Initialize Clerk client
+const clerkClient = createClerkClient({
+  secretKey: process.env.CLERK_SECRET_KEY,
+});
 
-const httpServer = createServer();
+// Socket.io server setup with Express for health check
+import express from "express";
+
+const app = express();
+const httpServer = createServer(app);
 const io = new SocketServer(httpServer, {
   cors: {
     origin: "*",
@@ -31,17 +25,72 @@ const io = new SocketServer(httpServer, {
 });
 const activeUsers = {}; // Store active users with their channel subscriptions
 
+// Health check endpoint for Socket.io
+app.get("/health", (_req, res) => {
+  res.json({
+    status: "ok",
+    services: {
+      socketio: "running",
+      port: 4001,
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Start Socket.io server
+httpServer.listen(4001, () => {
+  console.log(`🔌 Socket.IO server running on http://localhost:4001`);
+});
+
+// Socket.IO JWT Authentication Middleware
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+
+    if (!token) {
+      console.error("[Socket.IO Auth] No token provided");
+      return next(new Error('Authentication token required'));
+    }
+
+    // Verify JWT with Clerk
+    const payload = await verifyToken(token, {
+      secretKey: process.env.CLERK_SECRET_KEY
+    });
+
+    const userId = payload.sub;
+    const clerkUser = await clerkClient.users.getUser(userId);
+
+    // Get user from MongoDB
+    const users = await usersCollection();
+    const dbUser = await users.findOne({ clerkId: clerkUser.id });
+
+    if (!dbUser) {
+      console.error("[Socket.IO Auth] User not found in database:", clerkUser.id);
+      return next(new Error('User not found in database'));
+    }
+
+    // Attach user info to socket
+    socket.userId = dbUser._id.toString();
+    socket.userEmail = clerkUser.emailAddresses?.[0]?.emailAddress || clerkUser.email;
+    socket.clerkId = clerkUser.id;
+
+    console.log(`[Socket.IO Auth] User authenticated: ${socket.userEmail} (${socket.userId})`);
+    next();
+  } catch (error) {
+    console.error('[Socket.IO Auth] Authentication failed:', error.message);
+    next(new Error('Authentication failed'));
+  }
+});
+
 io.on("connection", (socket) => {
-  console.log("A user connected:", socket.id);
+  console.log("A user connected:", socket.userId, socket.userEmail);
 
-  // Handle user connection and channel subscription
+  // Store user in activeUsers by userId (for DM routing)
+  activeUsers[socket.userId] = socket.id;
+
+  // Handle user connection and channel subscription (legacy project chat)
   socket.on("user_connected", (data) => {
-    console.log("User connected:", data);
-
-    // Optionally store user data
-    activeUsers[socket.id] = data;
-
-    // Notify other users if needed
+    console.log("User connected (legacy):", data);
     socket.broadcast.emit("user_joined", { user: data });
   });
 
@@ -79,36 +128,48 @@ io.on("connection", (socket) => {
     io.to(data.channel).emit("chat_message", data);
   });
 
+  // DIRECT MESSAGING EVENTS
+
+  // Join personal DM room (for receiving conversation updates)
+  socket.on('join_dm_room', () => {
+    const userRoom = `dm:${socket.userId}`;
+    socket.join(userRoom);
+    console.log(`[DM] ${socket.userEmail} joined personal DM room: ${userRoom}`);
+  });
+
+  // Join specific conversation room (for real-time messaging)
+  socket.on('join_conversation', (conversationId) => {
+    socket.join(`conversation:${conversationId}`);
+    console.log(`[DM] ${socket.userEmail} joined conversation: ${conversationId}`);
+  });
+
+  // Leave conversation room
+  socket.on('leave_conversation', (conversationId) => {
+    socket.leave(`conversation:${conversationId}`);
+    console.log(`[DM] ${socket.userEmail} left conversation: ${conversationId}`);
+  });
+
+  // Typing indicators
+  socket.on('typing_start', ({ conversationId }) => {
+    socket.to(`conversation:${conversationId}`).emit('user_typing', {
+      userId: socket.userId,
+      conversationId
+    });
+  });
+
+  socket.on('typing_stop', ({ conversationId }) => {
+    socket.to(`conversation:${conversationId}`).emit('user_stopped_typing', {
+      userId: socket.userId,
+      conversationId
+    });
+  });
+
   // Handle user disconnection
   socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
-    delete activeUsers[socket.id]; // Remove the user from active users
+    console.log("User disconnected:", socket.userId, socket.userEmail);
+    delete activeUsers[socket.userId];
   });
 });
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
-
-const server = new ApolloServer({
-  typeDefs,
-  resolvers,
-});
-
-// Start Apollo server with custom HTTP server
-const startServer = async () => {
-  const { url } = await startStandaloneServer(server, {
-    listen: { port: 4000 },
-  });
-
-  httpServer.listen(4001, () => {
-    console.log(`Socket.IO server running on http://localhost:4001`);
-  });
-};
-
-startServer();
-// const { url } = await startStandaloneServer(server, {
-//   listen: { port: 4000 },
-// });
-
-// console.log(`🚀  Server ready at: ${url}`);
+// Export io instance for use in GraphQL resolvers
+export { io };

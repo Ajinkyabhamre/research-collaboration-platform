@@ -2,12 +2,12 @@ import React, { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@apollo/client";
 import queries from "../../queries";
 import { Link } from "react-router-dom";
-import { useAuth } from "../../context/AuthContext";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 
 function ApplicationList() {
-  const { authState } = useAuth();
-  const id = authState.user.id;
-  const userRole = authState.user.role;
+  const { user } = useCurrentUser();
+  const id = user?._id;
+  const userRole = user?.role;
 
   const { loading, error, data, refetch } = useQuery(queries.GET_USER_BY_ID, {
     variables: { id },
@@ -53,7 +53,9 @@ function ApplicationList() {
     }
   }, [data]);
 
-  if (loading) {
+  if (!user) {
+    return <p className="loader">Loading user...</p>;
+  } else if (loading) {
     return <p className="loader">Loading...</p>;
   } else if (error) {
     return <p className="error-message">Error: {error.message}</p>;

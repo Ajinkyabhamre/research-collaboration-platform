@@ -2,6 +2,52 @@ import { gql } from "@apollo/client";
 
 /* QUERIES
  ******************************** */
+// GET CURRENT USER
+const ME = gql`
+  query Me {
+    me {
+      _id
+      firstName
+      lastName
+      email
+      role
+      department
+      bio
+      headline
+      location
+      city
+      profileLinks {
+        github
+        linkedin
+        website
+      }
+      profilePhoto
+      coverPhoto
+      featuredProjectId
+      skills
+      education {
+        institution
+        degree
+        field
+        startDate
+        endDate
+        location
+        description
+      }
+      experience {
+        title
+        company
+        location
+        startDate
+        endDate
+        description
+      }
+      numOfProjects
+      numOfApplications
+    }
+  }
+`;
+
 // GET ALL
 const GET_PROJECTS = gql`
   query Projects {
@@ -90,6 +136,35 @@ const GET_USER_BY_ID = gql`
       role
       department
       bio
+      headline
+      location
+      city
+      profileLinks {
+        github
+        linkedin
+        website
+      }
+      profilePhoto
+      coverPhoto
+      featuredProjectId
+      skills
+      education {
+        institution
+        degree
+        field
+        startDate
+        endDate
+        location
+        description
+      }
+      experience {
+        title
+        company
+        location
+        startDate
+        endDate
+        description
+      }
       applications {
         _id
         applicant {
@@ -266,6 +341,32 @@ const GET_STUDENT_BY_PROJECT_ID = gql`
     }
   }
 `;
+
+const GET_PROJECTS_BY_USER_ID = gql`
+  query GetProjectsByUserId($id: String!) {
+    getProjectsByUserId(_id: $id) {
+      _id
+      title
+      department
+      professors {
+        _id
+        firstName
+        lastName
+      }
+      students {
+        _id
+        firstName
+        lastName
+      }
+      createdDate
+      githubUrl
+      liveUrl
+      demoVideoUrl
+      techStack
+    }
+  }
+`;
+
 const PROJECTS_BY_DEPARTMENT = gql`
   query Query($department: Department!) {
     projectsByDepartment(department: $department) {
@@ -529,6 +630,52 @@ const EDIT_USER = gql`
     }
   }
 `;
+
+const UPDATE_MY_PROFILE = gql`
+  mutation UpdateMyProfile($input: UpdateMyProfileInput!) {
+    updateMyProfile(input: $input) {
+      _id
+      firstName
+      lastName
+      email
+      role
+      department
+      bio
+      headline
+      location
+      city
+      profileLinks {
+        github
+        linkedin
+        website
+      }
+      profilePhoto
+      coverPhoto
+      featuredProjectId
+      skills
+      education {
+        institution
+        degree
+        field
+        startDate
+        endDate
+        location
+        description
+      }
+      experience {
+        title
+        company
+        location
+        startDate
+        endDate
+        description
+      }
+      numOfProjects
+      numOfApplications
+    }
+  }
+`;
+
 const EDIT_PROJECT = gql`
   mutation EditProject(
     $id: String!
@@ -698,7 +845,230 @@ const REMOVE_COMMENT = gql`
   }
 `;
 
+/* HOME FEED V2 QUERIES & MUTATIONS
+ ******************************** */
+
+const FEED = gql`
+  query Feed($cursor: FeedCursorInput) {
+    feed(cursor: $cursor) {
+      items {
+        _id
+        author {
+          _id
+          firstName
+          lastName
+          role
+          department
+          email
+        }
+        text
+        media {
+          type
+          url
+          thumbnailUrl
+          alt
+        }
+        createdAt
+        updatedAt
+        likeCount
+        commentCount
+        viewerHasLiked
+      }
+      nextCursor
+    }
+  }
+`;
+
+const POST_COMMENTS = gql`
+  query PostComments($postId: String!, $cursor: CommentsCursorInput) {
+    postComments(postId: $postId, cursor: $cursor) {
+      items {
+        _id
+        postId
+        commenter {
+          _id
+          firstName
+          lastName
+          role
+          department
+        }
+        text
+        createdAt
+        updatedAt
+      }
+      nextCursor
+    }
+  }
+`;
+
+const CREATE_POST = gql`
+  mutation CreatePost($text: String!, $media: [PostMediaInput!]) {
+    createPost(text: $text, media: $media) {
+      _id
+      author {
+        _id
+        firstName
+        lastName
+        role
+        department
+      }
+      text
+      media {
+        type
+        url
+        thumbnailUrl
+        alt
+      }
+      createdAt
+      updatedAt
+      likeCount
+      commentCount
+      viewerHasLiked
+    }
+  }
+`;
+
+const TOGGLE_LIKE = gql`
+  mutation ToggleLike($postId: String!) {
+    toggleLike(postId: $postId) {
+      _id
+      likeCount
+      viewerHasLiked
+    }
+  }
+`;
+
+const ADD_POST_COMMENT = gql`
+  mutation AddPostComment($postId: String!, $text: String!) {
+    addPostComment(postId: $postId, text: $text) {
+      _id
+      postId
+      commenter {
+        _id
+        firstName
+        lastName
+        role
+        department
+      }
+      text
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+const DELETE_POST = gql`
+  mutation DeletePost($postId: String!) {
+    deletePost(postId: $postId)
+  }
+`;
+
+const UPDATE_PROJECT_PORTFOLIO = gql`
+  mutation UpdateProjectPortfolio($projectId: String!, $input: UpdateProjectPortfolioInput!) {
+    updateProjectPortfolio(projectId: $projectId, input: $input) {
+      _id
+      title
+      githubUrl
+      liveUrl
+      demoVideoUrl
+      techStack
+    }
+  }
+`;
+
+// DIRECT MESSAGING QUERIES & MUTATIONS
+
+const CONVERSATIONS = gql`
+  query Conversations($cursor: ConversationsCursorInput) {
+    conversations(cursor: $cursor) {
+      items {
+        _id
+        participants {
+          _id
+          firstName
+          lastName
+          profilePhoto
+        }
+        lastMessage {
+          text
+          sender {
+            _id
+            firstName
+            lastName
+          }
+          timestamp
+        }
+        unreadCount
+        updatedAt
+      }
+      nextCursor
+    }
+  }
+`;
+
+const CONVERSATION_MESSAGES = gql`
+  query ConversationMessages($conversationId: String!, $cursor: MessagesCursorInput) {
+    conversationMessages(conversationId: $conversationId, cursor: $cursor) {
+      items {
+        _id
+        sender {
+          _id
+          firstName
+          lastName
+          profilePhoto
+        }
+        text
+        isRead
+        createdAt
+      }
+      nextCursor
+    }
+  }
+`;
+
+const GET_OR_CREATE_CONVERSATION = gql`
+  query GetOrCreateConversation($recipientId: String!) {
+    getOrCreateConversation(recipientId: $recipientId) {
+      _id
+      participants {
+        _id
+        firstName
+        lastName
+        profilePhoto
+      }
+      unreadCount
+    }
+  }
+`;
+
+const SEND_DIRECT_MESSAGE = gql`
+  mutation SendDirectMessage($recipientId: String!, $text: String!) {
+    sendDirectMessage(recipientId: $recipientId, text: $text) {
+      _id
+      sender {
+        _id
+        firstName
+        lastName
+        profilePhoto
+      }
+      text
+      isRead
+      createdAt
+    }
+  }
+`;
+
+const MARK_CONVERSATION_AS_READ = gql`
+  mutation MarkConversationAsRead($conversationId: String!) {
+    markConversationAsRead(conversationId: $conversationId) {
+      _id
+      unreadCount
+    }
+  }
+`;
+
 let exported = {
+  ME,
   GET_PROJECTS,
   GET_APPLICATIONS,
   GET_UPDATES,
@@ -709,6 +1079,7 @@ let exported = {
   CHANGE_APPLICATION_STATUS,
   GET_PROFESSORS_BY_PROJECT_ID,
   GET_STUDENT_BY_PROJECT_ID,
+  GET_PROJECTS_BY_USER_ID,
   PROJECTS_BY_DEPARTMENT,
   UDPATES_BY_SUBJECT,
   PROJECTS_BY_CREATED_YEAR,
@@ -719,6 +1090,7 @@ let exported = {
   ADD_UPDATE,
   ADD_APPLICATION,
   EDIT_USER,
+  UPDATE_MY_PROFILE,
   EDIT_PROJECT,
   EDIT_UPDATE,
   EDIT_APPLICATION,
@@ -731,6 +1103,20 @@ let exported = {
   GET_ENUM_ROLE,
   ADD_COMMENT,
   REMOVE_COMMENT,
+  // Home Feed V2
+  FEED,
+  POST_COMMENTS,
+  CREATE_POST,
+  TOGGLE_LIKE,
+  ADD_POST_COMMENT,
+  DELETE_POST,
+  UPDATE_PROJECT_PORTFOLIO,
+  // Direct Messaging
+  CONVERSATIONS,
+  CONVERSATION_MESSAGES,
+  GET_OR_CREATE_CONVERSATION,
+  SEND_DIRECT_MESSAGE,
+  MARK_CONVERSATION_AS_READ,
 };
 
 export default exported;

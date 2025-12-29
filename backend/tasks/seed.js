@@ -3,39 +3,23 @@ import {
   projects,
   applications,
   updates,
+  posts,
+  postLikes,
+  postComments,
 } from "../config/mongoCollections.js";
-import admin from "firebase-admin";
 import { ObjectId } from "mongodb";
 import { dbConnection, closeConnection } from "../config/mongoConnection.js";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-const serviceAccount = {
-  type: "service_account",
-  project_id: process.env.FIREBASE_PROJECT_ID,
-  private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-  private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-  client_email: process.env.FIREBASE_CLIENT_EMAIL,
-  client_id: process.env.FIREBASE_CLIENT_ID,
-  auth_uri: "https://accounts.google.com/o/oauth2/auth",
-  token_uri: "https://oauth2.googleapis.com/token",
-  auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-  client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL,
-  universe_domain: process.env.FIREBASE_UNIVERSE_DOMAIN,
-};
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
-
 const professors = [
   {
     _id: { $oid: "000000000000000000000001" },
+    clerkId: "seed_clerk_professor_001",
     firstName: "Alice",
     lastName: "Smith",
     email: "asmith@stevens.edu",
-    password: "Alice@2023",
     role: "PROFESSOR",
     department: "COMPUTER_SCIENCE",
     bio: null,
@@ -45,7 +29,6 @@ const professors = [
     firstName: "Bob",
     lastName: "Johnson",
     email: "bjohnson@stevens.edu",
-    password: "Bob#1987",
     role: "PROFESSOR",
     department: "ELECTRICAL_AND_COMPUTER_ENGINEERING",
     bio: null,
@@ -55,7 +38,6 @@ const professors = [
     firstName: "Cathy",
     lastName: "Williams",
     email: "cwilliams@stevens.edu",
-    password: "Cathy2023!",
     role: "PROFESSOR",
     department: "MATHEMATICAL_SCIENCES",
     bio: null,
@@ -65,7 +47,6 @@ const professors = [
     firstName: "David",
     lastName: "Brown",
     email: "dbrown@stevens.edu",
-    password: "David2023*",
     role: "PROFESSOR",
     department: "MECHANICAL_ENGINEERING",
     bio: null,
@@ -75,7 +56,6 @@ const professors = [
     firstName: "Eve",
     lastName: "Jones",
     email: "ejones@stevens.edu",
-    password: "Eve#1234",
     role: "PROFESSOR",
     department: "BIOMEDICAL_ENGINEERING",
     bio: null,
@@ -85,7 +65,6 @@ const professors = [
     firstName: "Frank",
     lastName: "Garcia",
     email: "fgarcia@stevens.edu",
-    password: "Frank@789",
     role: "PROFESSOR",
     department: "CHEMISTRY_AND_CHEMICAL_BIOLOGY",
     bio: null,
@@ -95,7 +74,6 @@ const professors = [
     firstName: "Grace",
     lastName: "Martinez",
     email: "gmartinez@stevens.edu",
-    password: "Grace!2023",
     role: "PROFESSOR",
     department: "PHYSICS",
     bio: null,
@@ -105,7 +83,6 @@ const professors = [
     firstName: "Henry",
     lastName: "Lee",
     email: "hlee@stevens.edu",
-    password: "Henry2023@",
     role: "PROFESSOR",
     department: "SYSTEMS_AND_ENTERPRISES",
     bio: null,
@@ -115,7 +92,6 @@ const professors = [
     firstName: "Ivy",
     lastName: "Taylor",
     email: "itaylor@stevens.edu",
-    password: "Ivy2023#",
     role: "PROFESSOR",
     department: "CHEMICAL_ENGINEERING_AND_MATERIALS_SCIENCE",
     bio: null,
@@ -125,7 +101,6 @@ const professors = [
     firstName: "Jack",
     lastName: "Harris",
     email: "jharris@stevens.edu",
-    password: "Jack123!@",
     role: "PROFESSOR",
     department: "CIVIL_ENVIRONMENTAL_AND_OCEAN_ENGINEERING",
     bio: null,
@@ -135,7 +110,6 @@ const professors = [
     firstName: "Karen",
     lastName: "White",
     email: "kwhite@stevens.edu",
-    password: "Karen!2020",
     role: "PROFESSOR",
     department: "COMPUTER_SCIENCE",
     bio: null,
@@ -145,7 +119,6 @@ const professors = [
     firstName: "Leo",
     lastName: "King",
     email: "lking@stevens.edu",
-    password: "Leo!1234",
     role: "PROFESSOR",
     department: "ELECTRICAL_AND_COMPUTER_ENGINEERING",
     bio: null,
@@ -155,7 +128,6 @@ const professors = [
     firstName: "Mia",
     lastName: "Scott",
     email: "mscott@stevens.edu",
-    password: "Mia@5678",
     role: "PROFESSOR",
     department: "MATHEMATICAL_SCIENCES",
     bio: null,
@@ -165,7 +137,6 @@ const professors = [
     firstName: "Nina",
     lastName: "Moore",
     email: "nmoore@stevens.edu",
-    password: "Nina#4567",
     role: "PROFESSOR",
     department: "MECHANICAL_ENGINEERING",
     bio: null,
@@ -175,7 +146,6 @@ const professors = [
     firstName: "Owen",
     lastName: "Clark",
     email: "oclark@stevens.edu",
-    password: "Owen2023*",
     role: "PROFESSOR",
     department: "BIOMEDICAL_ENGINEERING",
     bio: null,
@@ -185,7 +155,6 @@ const professors = [
     firstName: "Paula",
     lastName: "Hall",
     email: "phall@stevens.edu",
-    password: "Paula@890",
     role: "PROFESSOR",
     department: "CHEMISTRY_AND_CHEMICAL_BIOLOGY",
     bio: null,
@@ -195,7 +164,6 @@ const professors = [
     firstName: "Quinn",
     lastName: "Adams",
     email: "qadams@stevens.edu",
-    password: "Quinn123!",
     role: "PROFESSOR",
     department: "PHYSICS",
     bio: null,
@@ -205,7 +173,6 @@ const professors = [
     firstName: "Ryan",
     lastName: "Baker",
     email: "rbaker@stevens.edu",
-    password: "Ryan#7890",
     role: "PROFESSOR",
     department: "SYSTEMS_AND_ENTERPRISES",
     bio: null,
@@ -215,7 +182,6 @@ const professors = [
     firstName: "Sophia",
     lastName: "Carter",
     email: "scarter@stevens.edu",
-    password: "Sophia2023@",
     role: "PROFESSOR",
     department: "CHEMICAL_ENGINEERING_AND_MATERIALS_SCIENCE",
     bio: null,
@@ -225,7 +191,6 @@ const professors = [
     firstName: "Tyler",
     lastName: "Evans",
     email: "tevans@stevens.edu",
-    password: "Tyler#2345",
     role: "PROFESSOR",
     department: "CIVIL_ENVIRONMENTAL_AND_OCEAN_ENGINEERING",
     bio: null,
@@ -444,39 +409,16 @@ const seedUsers = async () => {
     professor._id = new ObjectId(professor._id.$oid);
 
     try {
-      // Try deleting the user if they exist
-      const user = await admin.auth().getUserByEmail(professor.email);
-      await admin.auth().deleteUser(user.uid);
-      console.log(`Deleted existing user: ${professor.email}`);
-    } catch (err) {
-      if (err.code === "auth/user-not-found") {
-        console.log(`No existing user found for email: ${professor.email}`);
-      } else {
-        console.error(`Error checking/deleting user: ${err.message}`);
-        throw err; // Stop further execution if there's an unexpected error
-      }
-    }
-
-    try {
-      // Create a new user in Firebase Authentication
-      const userRecord = await admin.auth().createUser({
-        email: professor.email,
-        password: professor.password,
-        displayName: `${professor.firstName} ${professor.lastName}`,
-      });
-      console.log(`Created new user: ${userRecord.email}`);
-      const { password, ...professorData } = professor;
-
-      // Save user details to the database
-      // Insert the student directly into the database
+      // Insert the professor directly into the database
       await userCollection.updateOne(
         { _id: professor._id }, // Ensure upsert is based on _id
-        { $set: professorData },
+        { $set: professor },
         { upsert: true } // Insert if not already present
       );
+      console.log(`Inserted/updated professor: ${professor.email}`);
     } catch (err) {
-      console.error(`Error creating user for email: ${professor.email}`);
-      throw err; // Stop further execution if there's an error creating the user
+      console.error(`Error inserting/updating professor in database: ${err.message}`);
+      throw err; // Stop further execution if there's an error inserting the professor
     }
   }
 };
@@ -487,7 +429,6 @@ const students = [
     firstName: "John",
     lastName: "Doe",
     email: "jdoe@stevens.edu",
-    password: "John@2023",
     role: "STUDENT",
     department: "COMPUTER_SCIENCE",
     bio: null,
@@ -497,7 +438,6 @@ const students = [
     firstName: "Emma",
     lastName: "Watson",
     email: "ewatson@stevens.edu",
-    password: "Emma@1234",
     role: "STUDENT",
     department: "ELECTRICAL_AND_COMPUTER_ENGINEERING",
     bio: null,
@@ -507,7 +447,6 @@ const students = [
     firstName: "Liam",
     lastName: "Johnson",
     email: "ljohnson@stevens.edu",
-    password: "Liam2023@",
     role: "STUDENT",
     department: "MECHANICAL_ENGINEERING",
     bio: null,
@@ -517,7 +456,6 @@ const students = [
     firstName: "Sophia",
     lastName: "Brown",
     email: "sbrown@stevens.edu",
-    password: "Sophia#2024",
     role: "STUDENT",
     department: "BIOMEDICAL_ENGINEERING",
     bio: null,
@@ -527,7 +465,6 @@ const students = [
     firstName: "Noah",
     lastName: "Williams",
     email: "nwilliams@stevens.edu",
-    password: "Noah!5678",
     role: "STUDENT",
     department: "CHEMISTRY_AND_CHEMICAL_BIOLOGY",
     bio: null,
@@ -537,7 +474,6 @@ const students = [
     firstName: "Ava",
     lastName: "Davis",
     email: "adavis@stevens.edu",
-    password: "Ava2023*",
     role: "STUDENT",
     department: "PHYSICS",
     bio: null,
@@ -547,7 +483,6 @@ const students = [
     firstName: "Ethan",
     lastName: "Miller",
     email: "emiller@stevens.edu",
-    password: "Ethan@123",
     role: "STUDENT",
     department: "SYSTEMS_AND_ENTERPRISES",
     bio: null,
@@ -557,7 +492,6 @@ const students = [
     firstName: "Isabella",
     lastName: "Garcia",
     email: "igarcia@stevens.edu",
-    password: "Isabella@2023",
     role: "STUDENT",
     department: "MATHEMATICAL_SCIENCES",
     bio: null,
@@ -567,7 +501,6 @@ const students = [
     firstName: "Mason",
     lastName: "Martinez",
     email: "mmartinez@stevens.edu",
-    password: "Mason#7890",
     role: "STUDENT",
     department: "CIVIL_ENVIRONMENTAL_AND_OCEAN_ENGINEERING",
     bio: null,
@@ -577,7 +510,6 @@ const students = [
     firstName: "Olivia",
     lastName: "Hernandez",
     email: "ohernandez@stevens.edu",
-    password: "Olivia2024*",
     role: "STUDENT",
     department: "CHEMICAL_ENGINEERING_AND_MATERIALS_SCIENCE",
     bio: null,
@@ -587,7 +519,6 @@ const students = [
     firstName: "Lucas",
     lastName: "Moore",
     email: "lmoore@stevens.edu",
-    password: "Lucas@3456",
     role: "STUDENT",
     department: "MECHANICAL_ENGINEERING",
     bio: null,
@@ -597,7 +528,6 @@ const students = [
     firstName: "Charlotte",
     lastName: "Taylor",
     email: "ctaylor@stevens.edu",
-    password: "Charlotte@123",
     role: "STUDENT",
     department: "COMPUTER_SCIENCE",
     bio: null,
@@ -607,7 +537,6 @@ const students = [
     firstName: "Benjamin",
     lastName: "Anderson",
     email: "banderson@stevens.edu",
-    password: "Benjamin2023!",
     role: "STUDENT",
     department: "ELECTRICAL_AND_COMPUTER_ENGINEERING",
     bio: null,
@@ -617,7 +546,6 @@ const students = [
     firstName: "Mia",
     lastName: "Thomas",
     email: "mthomas@stevens.edu",
-    password: "Mia@7890",
     role: "STUDENT",
     department: "PHYSICS",
     bio: null,
@@ -627,7 +555,6 @@ const students = [
     firstName: "Alexander",
     lastName: "Jackson",
     email: "ajackson@stevens.edu",
-    password: "Alexander!2024",
     role: "STUDENT",
     department: "CHEMISTRY_AND_CHEMICAL_BIOLOGY",
     bio: null,
@@ -637,7 +564,6 @@ const students = [
     firstName: "Ella",
     lastName: "White",
     email: "ewhite@stevens.edu",
-    password: "Ella@5678",
     role: "STUDENT",
     department: "MATHEMATICAL_SCIENCES",
     bio: null,
@@ -647,7 +573,6 @@ const students = [
     firstName: "Daniel",
     lastName: "Harris",
     email: "dharris@stevens.edu",
-    password: "Daniel#2345",
     role: "STUDENT",
     department: "BIOMEDICAL_ENGINEERING",
     bio: null,
@@ -657,7 +582,6 @@ const students = [
     firstName: "Scarlett",
     lastName: "Clark",
     email: "sclark@stevens.edu",
-    password: "Scarlett@2023",
     role: "STUDENT",
     department: "SYSTEMS_AND_ENTERPRISES",
     bio: null,
@@ -667,7 +591,6 @@ const students = [
     firstName: "James",
     lastName: "Lopez",
     email: "jlopez@stevens.edu",
-    password: "James2024@",
     role: "STUDENT",
     department: "CIVIL_ENVIRONMENTAL_AND_OCEAN_ENGINEERING",
     bio: null,
@@ -677,7 +600,6 @@ const students = [
     firstName: "Harper",
     lastName: "Hill",
     email: "hhill@stevens.edu",
-    password: "Harper!3456",
     role: "STUDENT",
     department: "CHEMICAL_ENGINEERING_AND_MATERIALS_SCIENCE",
     bio: null,
@@ -692,38 +614,10 @@ const seedStudents = async () => {
     student._id = new ObjectId(student._id.$oid);
 
     try {
-      // Check if the user already exists in Firebase Authentication
-      const user = await admin.auth().getUserByEmail(student.email);
-      await admin.auth().deleteUser(user.uid); // Delete the user if they exist
-      console.log(`Deleted existing user: ${student.email}`);
-    } catch (err) {
-      if (err.code === "auth/user-not-found") {
-        console.log(`No existing user found for email: ${student.email}`);
-      } else {
-        console.error(`Error checking/deleting user: ${err.message}`);
-        throw err; // Stop further execution if there's an unexpected error
-      }
-    }
-
-    try {
-      // Create a new user in Firebase Authentication
-      const userRecord = await admin.auth().createUser({
-        email: student.email,
-        password: student.password,
-        displayName: `${student.firstName} ${student.lastName}`,
-      });
-      console.log(`Created new user: ${userRecord.email}`);
-    } catch (err) {
-      console.error(`Error creating user for email: ${student.email}`);
-      throw err; // Stop further execution if there's an error creating the user
-    }
-
-    try {
-      const { password, ...studentData } = student;
       // Insert the student directly into the database
       await userCollection.updateOne(
         { _id: student._id }, // Ensure upsert is based on _id
-        { $set: studentData },
+        { $set: student },
         { upsert: true } // Insert if not already present
       );
       console.log(`Inserted/updated student: ${student.email}`);
@@ -1115,13 +1009,322 @@ const seedApplications = async () => {
 // seedUpdates();
 //#endregion
 
+// HOME FEED V2 SEED DATA
+// Realistic Stevens research-themed posts
+
+const seedPosts = async () => {
+  console.log("Seeding posts...");
+  const postCollection = await posts();
+  const postLikesCol = await postLikes();
+  const postCommentsCol = await postComments();
+  const userCollection = await users();
+
+  const allUsers = await userCollection.find().toArray();
+  const professorUsers = allUsers.filter(u => u.role === "PROFESSOR");
+  const studentUsers = allUsers.filter(u => u.role === "STUDENT");
+
+  if (professorUsers.length === 0 || studentUsers.length === 0) {
+    console.log("No users found. Skipping post seeding.");
+    return;
+  }
+
+  // Helper to get random user
+  const randomUser = (users) => users[Math.floor(Math.random() * users.length)];
+
+  // Helper to get multiple random users
+  const randomUsers = (users, count) => {
+    const shuffled = [...users].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, Math.min(count, users.length));
+  };
+
+  // Create posts with varying ages
+  const now = new Date();
+  const hoursAgo = (hours) => new Date(now - hours * 60 * 60 * 1000).toISOString();
+  const daysAgo = (days) => new Date(now - days * 24 * 60 * 60 * 1000).toISOString();
+
+  const postsData = [
+    {
+      userId: professorUsers[0]._id.toString(),
+      text: "Excited to announce our breakthrough in AI-driven cybersecurity! Our team at Stevens has developed a novel machine learning model that detects zero-day threats with 94% accuracy. This research could revolutionize how we protect critical infrastructure. Looking for graduate students interested in cybersecurity and deep learning to join the project. #AI #Cybersecurity #Research",
+      media: [],
+      createdAt: hoursAgo(2),
+      updatedAt: hoursAgo(2),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: professorUsers[1]._id.toString(),
+      text: "Incredible day at the lab! Our quantum computing team just successfully demonstrated a 50-qubit quantum processor operating at room temperature. This is a major step toward practical quantum computers. Publication coming soon in Nature Physics. Special thanks to the brilliant grad students who made this possible!",
+      media: [
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=800", alt: "Quantum computing lab setup" },
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=800", alt: "Quantum processor close-up" }
+      ],
+      createdAt: hoursAgo(5),
+      updatedAt: hoursAgo(5),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: studentUsers[0]._id.toString(),
+      text: "Just defended my PhD thesis on \"Neural Interfaces for Assistive Robotics\" at Stevens! 🎓 Couldn't have done it without my advisor Dr. Williams and the amazing biomedical engineering community here. Now onto postdoc opportunities in BCI research. Thank you all for the support over these 4 years!",
+      media: [
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=800", alt: "Thesis defense presentation" }
+      ],
+      createdAt: hoursAgo(8),
+      updatedAt: hoursAgo(8),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: professorUsers[2]._id.toString(),
+      text: "Our robotics lab's latest autonomous underwater vehicle (AUV) completed a 72-hour ocean mapping mission! The vehicle successfully mapped 50 square kilometers of the Hudson Canyon using advanced SLAM algorithms and collected crucial environmental data. This technology will help monitor marine ecosystems and detect underwater infrastructure damage.",
+      media: [
+        { type: "VIDEO", url: "https://www.w3schools.com/html/mov_bbb.mp4", thumbnailUrl: "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=800", alt: "AUV deployment video" }
+      ],
+      createdAt: daysAgo(1),
+      updatedAt: daysAgo(1),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: professorUsers[3]._id.toString(),
+      text: "Thrilled to share that our team's paper on sustainable energy storage systems has been accepted to the IEEE Transactions on Energy! We developed a new graphene-based supercapacitor that stores 3x more energy than current technologies. This could be game-changing for electric vehicles and renewable energy grid storage. Preprint available on arXiv.",
+      media: [],
+      createdAt: daysAgo(2),
+      updatedAt: daysAgo(2),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: studentUsers[1]._id.toString(),
+      text: "Won 1st place at the Stevens Innovation Expo for our AI-powered medical diagnosis app! Our team built a mobile app that uses computer vision to detect skin cancer from smartphone photos with 89% accuracy. Thanks to our faculty mentors and the entrepreneurship program for supporting us. Now looking for funding to bring this to market.",
+      media: [
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=800", alt: "Innovation Expo award ceremony" },
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1551076805-e1869033e561?w=800", alt: "Mobile app demo screenshot" },
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?w=800", alt: "Team photo at expo" }
+      ],
+      createdAt: daysAgo(3),
+      updatedAt: daysAgo(3),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: professorUsers[4]._id.toString(),
+      text: "Congratulations to our graduate researchers who published in Science Robotics! The paper presents a soft robotic gripper inspired by octopus tentacles that can handle delicate objects 10x better than rigid grippers. Potential applications in agriculture, food handling, and surgery. Proud of this interdisciplinary collaboration between mechanical engineering, materials science, and biology.",
+      media: [
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1561557944-6e7860d1a7eb?w=800", alt: "Soft robotic gripper prototype" },
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1581093588401-fbb62a02f120?w=800", alt: "Lab research setup" },
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1581092918056-0c4c3acd3789?w=800", alt: "Data analysis graphs" },
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1582719471137-c3967ffb1c42?w=800", alt: "Research team collaboration" }
+      ],
+      createdAt: daysAgo(4),
+      updatedAt: daysAgo(4),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: professorUsers[5]._id.toString(),
+      text: "Exciting news: Stevens receives $2.5M NSF grant for climate change research! Our interdisciplinary team will develop advanced sensors and ML models to predict coastal flooding and sea-level rise in NYC metropolitan area. This 4-year project will directly help communities prepare for climate impacts. We're hiring 3 PhD students and 2 postdocs - applications open now!",
+      media: [],
+      createdAt: daysAgo(5),
+      updatedAt: daysAgo(5),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: studentUsers[2]._id.toString(),
+      text: "Had an amazing experience at the NeurIPS conference presenting our work on reinforcement learning for autonomous drones. Got great feedback from researchers at MIT, Stanford, and DeepMind. Also attended fascinating workshops on LLMs and multi-agent systems. Feeling inspired to push our research further!",
+      media: [
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800", alt: "Conference poster presentation" }
+      ],
+      createdAt: daysAgo(6),
+      updatedAt: daysAgo(6),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: professorUsers[6]._id.toString(),
+      text: "Our materials science lab achieved a major milestone: we synthesized a new polymer that's stronger than Kevlar but biodegradable! This could revolutionize sustainable manufacturing and reduce plastic waste. The material maintains 95% strength after 6 months of decomposition. Patent pending, paper submitted to Nature Materials.",
+      media: [
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=800", alt: "New polymer sample testing" },
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1582719471137-c3967ffb1c42?w=800", alt: "Lab equipment and materials" }
+      ],
+      createdAt: daysAgo(7),
+      updatedAt: daysAgo(7),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: studentUsers[3]._id.toString(),
+      text: "My summer internship at NASA JPL was incredible! Worked on Mars rover path planning algorithms using graph neural networks. Learned so much from the team and got to see the mission control center. Stevens prepared me well for this opportunity. Now applying these experiences to my thesis research.",
+      media: [
+        { type: "IMAGE", url: "https://images.unsplash.com/photo-1614728894747-a83421e2b9c9?w=800", alt: "NASA JPL visitor badge and mission patch" }
+      ],
+      createdAt: daysAgo(8),
+      updatedAt: daysAgo(8),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: professorUsers[7]._id.toString(),
+      text: "Reminder: Applications for our Summer 2025 Research Program are now open! We have 15 funded positions across AI, cybersecurity, biomedical engineering, robotics, and clean energy. Undergraduate and graduate students welcome. Deadline: March 1st. This is a great opportunity to work on cutting-edge research and build your CV. Apply through the Stevens research portal!",
+      media: [],
+      createdAt: daysAgo(9),
+      updatedAt: daysAgo(9),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: professorUsers[8]._id.toString(),
+      text: "Just published a comprehensive review paper on brain-computer interfaces in Frontiers in Neuroscience. We analyzed 200+ BCI studies from the past decade and identified key challenges and opportunities. The field is advancing rapidly - we're getting closer to practical BCIs for communication, rehabilitation, and augmented cognition. Open access link in comments!",
+      media: [],
+      createdAt: daysAgo(10),
+      updatedAt: daysAgo(10),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: studentUsers[4]._id.toString(),
+      text: "Excited to start my new position as a Research Assistant on the Smart Cities project! We'll be deploying IoT sensors across Hoboken to monitor air quality, traffic, and energy usage. This real-world data will help develop better urban planning models. Thanks Dr. Lee for this opportunity!",
+      media: [],
+      createdAt: daysAgo(11),
+      updatedAt: daysAgo(11),
+      likeCount: 0,
+      commentCount: 0,
+    },
+    {
+      userId: professorUsers[9]._id.toString(),
+      text: "Our lab's autonomous drone swarm successfully coordinated search and rescue operations in simulated disaster scenarios! 20 drones worked together using decentralized AI to locate survivors 40% faster than traditional methods. This technology could save lives in earthquakes, floods, and other emergencies. Video demonstration attached.",
+      media: [
+        { type: "VIDEO", url: "https://www.w3schools.com/html/movie.mp4", thumbnailUrl: "https://images.unsplash.com/photo-1473968512647-3e447244af8f?w=800", alt: "Drone swarm demonstration" }
+      ],
+      createdAt: daysAgo(12),
+      updatedAt: daysAgo(12),
+      likeCount: 0,
+      commentCount: 0,
+    }
+  ];
+
+  // Insert posts
+  const insertedPosts = await postCollection.insertMany(postsData);
+  console.log(`Inserted ${Object.keys(insertedPosts.insertedIds).length} posts`);
+
+  // Get all inserted post IDs
+  const allPostIds = Object.values(insertedPosts.insertedIds);
+
+  // Add likes to posts (random distribution)
+  const likesData = [];
+  for (let i = 0; i < allPostIds.length; i++) {
+    const postId = allPostIds[i].toString();
+    const numLikes = Math.floor(Math.random() * 30) + 5; // 5-35 likes per post
+    const likers = randomUsers(allUsers, numLikes);
+
+    for (const liker of likers) {
+      likesData.push({
+        postId,
+        userId: liker._id.toString(),
+        createdAt: new Date(now - Math.random() * 12 * 24 * 60 * 60 * 1000).toISOString() // Within last 12 days
+      });
+    }
+  }
+
+  if (likesData.length > 0) {
+    await postLikesCol.insertMany(likesData);
+    console.log(`Inserted ${likesData.length} likes`);
+
+    // Update like counts on posts
+    for (const postId of allPostIds) {
+      const likeCount = likesData.filter(l => l.postId === postId.toString()).length;
+      await postCollection.updateOne(
+        { _id: postId },
+        { $set: { likeCount } }
+      );
+    }
+  }
+
+  // Add comments to posts (2-8 comments per post)
+  const commentsData = [];
+  const commentTexts = [
+    "This is groundbreaking research! Congratulations to the team!",
+    "Fantastic work! Would love to learn more about the methodology.",
+    "This aligns perfectly with my research interests. Can we discuss potential collaboration?",
+    "Impressive results! Have you considered publishing in [Journal Name]?",
+    "Congratulations! This will have significant real-world impact.",
+    "I attended your presentation and was blown away. Excellent work!",
+    "This is exactly the kind of innovation we need. Well done!",
+    "Very interesting approach. Have you faced any scalability challenges?",
+    "Amazing achievement! Looking forward to reading the full paper.",
+    "This could revolutionize the field. Great job!",
+    "Proud to be part of the Stevens research community seeing work like this!",
+    "Wow, this is incredible progress. What's next for the project?",
+    "I'd love to contribute to this research. Are you looking for collaborators?",
+    "This has huge implications for [application area]. Exciting times!",
+    "Congratulations on this milestone! Your hard work is paying off.",
+    "This is why Stevens is leading in research innovation!",
+    "Have you considered the ethical implications of this technology?",
+    "Brilliant work! The engineering behind this is remarkable.",
+    "This could be a game-changer for the industry.",
+    "So proud of our research team! Keep pushing boundaries!"
+  ];
+
+  for (let i = 0; i < allPostIds.length; i++) {
+    const postId = allPostIds[i].toString();
+    const numComments = Math.floor(Math.random() * 7) + 2; // 2-8 comments
+
+    for (let j = 0; j < numComments; j++) {
+      const commenter = randomUser(allUsers);
+      const commentText = commentTexts[Math.floor(Math.random() * commentTexts.length)];
+      const commentAge = Math.random() * (12 - i) * 24 * 60 * 60 * 1000; // Comments newer than post
+
+      commentsData.push({
+        postId,
+        userId: commenter._id.toString(),
+        text: commentText,
+        createdAt: new Date(now - commentAge).toISOString(),
+        updatedAt: new Date(now - commentAge).toISOString()
+      });
+    }
+  }
+
+  if (commentsData.length > 0) {
+    await postCommentsCol.insertMany(commentsData);
+    console.log(`Inserted ${commentsData.length} comments`);
+
+    // Update comment counts on posts
+    for (const postId of allPostIds) {
+      const commentCount = commentsData.filter(c => c.postId === postId.toString()).length;
+      await postCollection.updateOne(
+        { _id: postId },
+        { $set: { commentCount } }
+      );
+    }
+  }
+
+  console.log("Posts seeding complete!");
+};
+
 const main = async () => {
   const db = await dbConnection();
-  await db.dropDatabase();
+
+  // Drop individual collections instead of entire database (Atlas free tier restriction)
+  console.log("Dropping existing collections...");
+  try {
+    await db.collection('users').drop().catch(() => console.log("users collection doesn't exist yet"));
+    await db.collection('projects').drop().catch(() => console.log("projects collection doesn't exist yet"));
+    await db.collection('applications').drop().catch(() => console.log("applications collection doesn't exist yet"));
+    await db.collection('posts').drop().catch(() => console.log("posts collection doesn't exist yet"));
+    await db.collection('postLikes').drop().catch(() => console.log("postLikes collection doesn't exist yet"));
+    await db.collection('postComments').drop().catch(() => console.log("postComments collection doesn't exist yet"));
+    console.log("Collections dropped successfully");
+  } catch (error) {
+    console.log("Error dropping collections (might be first run):", error.message);
+  }
+
   await seedUsers();
   await seedProjects();
   await seedStudents();
   await seedApplications();
+  await seedPosts();
   closeConnection();
 };
 

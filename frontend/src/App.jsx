@@ -1,210 +1,198 @@
-import React, { useEffect } from "react";
-import { Routes, Route } from "react-router-dom";
+import React from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { SignIn, SignUp, SignedIn, SignedOut } from '@clerk/clerk-react';
 
-import Navbar from "./components/common/Navbar";
-import Footer from "./components/common/Footer";
-import NotFound from "./components/common/NotFound";
-import Home from "./components/common/Home";
-import UserDashboard from "./components/dashboard/UserDashboard";
-import EditUser from "./components/dashboard/EditUser";
+import { AppShell } from './components/layout/AppShell';
+import ProtectedRoute from './components/ProtectedRoute';
+import { useMessageNotifications } from './hooks/useMessageNotifications';
 
-import Login from "./components/auth/Login";
-import Register from "./components/auth/Register";
+// New Pages
+import { Landing } from './pages/Landing';
+import { Home } from './pages/Home';
+import { Projects } from './pages/Projects';
+import { ProjectDetails } from './pages/ProjectDetails';
+import { ProjectRequests } from './pages/ProjectRequests';
+import { Messaging } from './pages/Messaging';
+import { Notifications } from './pages/Notifications';
+import { Profile } from './pages/Profile';
+import { PublicProfile } from './pages/PublicProfile';
 
-import ProjectList from "./components/project/List";
-import ProjectDetails from "./components/project/[id]/Details";
-import Requests from "./components/project/[id]/Requests";
-import Team from "./components/project/[id]/Team";
-import ProjectLayout from "./components/project/[id]/ProjectWrapper";
+// Old components (keep for now to avoid breaking existing routes)
+import NotFound from './components/common/NotFound';
+import UserDashboard from './components/dashboard/UserDashboard';
+import EditUser from './components/dashboard/EditUser';
+import ProjectList from './components/project/List';
+import OldProjectDetails from './components/project/[id]/Details';
+import Requests from './components/project/[id]/Requests';
+import Team from './components/project/[id]/Team';
+import ProjectLayout from './components/project/[id]/ProjectWrapper';
+import ProjectAdd from './components/project/Add';
+import Chat from './components/Chat';
+import Newsfeed from './components/Newsfeed';
+import ApplicationList from './components/application/List';
+import ApplicationDetails from './components/application/[id]/Details';
+import AllProjectList from './components/all_projects/List';
 
-import ProjectAdd from "./components/project/Add";
-import ProtectedRoute, {
-  RedirectIfAuthenticated,
-} from "./components/ProtectedRoute";
-import Chat from "./components/Chat";
-import Newsfeed from "./components/Newsfeed";
-
-import ApplicationList from "./components/application/List";
-import ApplicationDetails from "./components/application/[id]/Details";
-
-import AllProjectList from "./components/all_projects/List";
-
-import ResetPasswordRequest from "./components/auth/ResetPasswordRequest";
-import ChangePassword from "./components/auth/ChangePassword";
 
 const App = () => {
-  // Theming
-  const getCSSVariable = (variable) =>
-    getComputedStyle(document.documentElement).getPropertyValue(variable);
-
-  const colors = {
-    light: {
-      textColor: getCSSVariable("--black1"),
-      bgColor: getCSSVariable("--white1"),
-      glassColor: getCSSVariable("--glass1"),
-      shadowColor: getCSSVariable("--shadow1"),
-      stripeTableColor: getCSSVariable("--stripeTableColor1"),
-      gradientColor: getCSSVariable("--lightGradient1"),
-      accentColor: getCSSVariable("--purple2"),
-      activeAccentGradient: getCSSVariable("--purpleGradient1"),
-    },
-    dark: {
-      textColor: getCSSVariable("--white1"),
-      bgColor: getCSSVariable("--black1"),
-      glassColor: getCSSVariable("--glass2"),
-      shadowColor: getCSSVariable("--shadow2"),
-      stripeTableColor: getCSSVariable("--stripeTableColor2"),
-      gradientColor: getCSSVariable("--darkGradient1"),
-      accentColor: getCSSVariable("--red2"),
-      activeAccentGradient: getCSSVariable("--redGradient1"),
-    },
-  };
-
-  const applyTheme = (isDarkMode) => {
-    const theme = isDarkMode ? colors.dark : colors.light;
-
-    document.documentElement.style.setProperty(
-      "--activeTextColor",
-      theme.textColor
-    );
-    document.documentElement.style.setProperty(
-      "--activeBgColor",
-      theme.bgColor
-    );
-    document.documentElement.style.setProperty(
-      "--activeGlassColor",
-      theme.glassColor
-    );
-    document.documentElement.style.setProperty(
-      "--activeShadowColor",
-      theme.shadowColor
-    );
-    document.documentElement.style.setProperty(
-      "--activeStripeTableColor",
-      theme.stripeTableColor
-    );
-    document.documentElement.style.setProperty(
-      "--activeGradientColor",
-      theme.gradientColor
-    );
-    document.documentElement.style.setProperty(
-      "--activeAccentColor",
-      theme.accentColor
-    );
-    document.documentElement.style.setProperty(
-      "--activeAccentGradient",
-      theme.activeAccentGradient
-    );
-
-    document.body.classList.toggle("dark", isDarkMode);
-
-    // Toggle classes on #switch and .iconSwitch elements
-    const switchElement = document.getElementById("switch");
-    const iconSwitchElements = document.querySelectorAll(".iconSwitch");
-
-    if (switchElement) {
-      switchElement.classList.toggle("switched", isDarkMode);
-    }
-
-    iconSwitchElements.forEach((icon) => {
-      icon.classList.toggle("invertColor", isDarkMode);
-    });
-  };
-
-  const themeSwitch = () => {
-    const isDarkMode = document.body.classList.contains("dark");
-    const newMode = !isDarkMode;
-
-    localStorage.setItem("isDarkMode", newMode ? 1 : 0);
-    applyTheme(newMode);
-  };
-
-  useEffect(() => {
-    // Initialize theme from localStorage
-    const isDarkMode = localStorage.getItem("isDarkMode") === "1";
-    applyTheme(isDarkMode);
-
-    // Add event listener for theme switch
-    const switchElement = document.getElementById("switch");
-    const handleSwitchClick = async () => {
-      themeSwitch();
-    };
-
-    if (switchElement) {
-      switchElement.addEventListener("click", handleSwitchClick);
-    }
-
-    // Cleanup event listener on unmount
-    return () => {
-      if (switchElement) {
-        switchElement.removeEventListener("click", handleSwitchClick);
-      }
-    };
-  }, []);
+  // Enable real-time message notifications
+  useMessageNotifications();
 
   return (
-    <>
-      <Navbar />
-      <Routes>
-        {/* <Route path="/" element={<Home />} /> */}
+    <Routes>
+        {/* Public Routes */}
         <Route
           path="/"
           element={
-            <RedirectIfAuthenticated>
-              <Home />
-            </RedirectIfAuthenticated>
+            <>
+              <SignedIn>
+                <Navigate to="/home" replace />
+              </SignedIn>
+              <SignedOut>
+                <Landing />
+              </SignedOut>
+            </>
           }
         />
-        {/* <Route path="/auth/login" element={<Login />} /> */}
+
+        {/* Clerk Authentication Routes */}
         <Route
-          path="/auth/login"
+          path="/sign-in/*"
           element={
-            <RedirectIfAuthenticated>
-              <Login />
-            </RedirectIfAuthenticated>
+            <>
+              <SignedIn>
+                <Navigate to="/home" replace />
+              </SignedIn>
+              <SignedOut>
+                <div className="min-h-screen flex items-center justify-center bg-appBg">
+                  <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" />
+                </div>
+              </SignedOut>
+            </>
           }
         />
-        {/* <Route path="/auth/register" element={<Register />} /> */}
+
         <Route
-          path="/auth/register"
+          path="/sign-up/*"
           element={
-            <RedirectIfAuthenticated>
-              <Register />
-            </RedirectIfAuthenticated>
+            <>
+              <SignedIn>
+                <Navigate to="/home" replace />
+              </SignedIn>
+              <SignedOut>
+                <div className="min-h-screen flex items-center justify-center bg-appBg">
+                  <SignUp routing="path" path="/sign-up" signInUrl="/sign-in" />
+                </div>
+              </SignedOut>
+            </>
           }
         />
+
+        {/* New Protected Routes (LinkedIn-style) */}
         <Route
-          path="/auth/resetpasswordrequest"
-          element={<ResetPasswordRequest />}
+          path="/home"
+          element={
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <Home />
+              </AppShell>
+            </ProtectedRoute>
+          }
         />
-        <Route path="/auth/changepassword" element={<ChangePassword />} />
+
+        <Route
+          path="/projects"
+          element={
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <Projects />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/projects/:id"
+          element={
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <ProjectDetails />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/projects/:id/requests"
+          element={
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN']}>
+              <AppShell>
+                <ProjectRequests />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/messaging"
+          element={
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <Messaging />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/notifications"
+          element={
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <Notifications />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/me"
+          element={
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <Profile />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Public Profile Route - No Authentication Required */}
+        <Route
+          path="/u/:userId"
+          element={
+            <AppShell>
+              <PublicProfile />
+            </AppShell>
+          }
+        />
+
+        {/* Old Routes - Redirect or keep for backward compatibility */}
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <Navigate to="/home" replace />
+            </ProtectedRoute>
+          }
+        />
 
         <Route
           path="/user/:id"
           element={
-            <ProtectedRoute allowedRoles={["PROFESSOR", "ADMIN", "STUDENT"]}>
-              <UserDashboard />
-            </ProtectedRoute>
-          }
-        />
-        {/* <Route path="/user/:id" element={<UserDashboard />} /> */}
-        {/* <Route path="/newsfeed" element={<Newsfeed />} /> */}
-
-        <Route
-          path="/newsfeed"
-          element={
-            <ProtectedRoute allowedRoles={["PROFESSOR", "ADMIN", "STUDENT"]}>
-              <Newsfeed />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Protected routes */}
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute allowedRoles={["PROFESSOR", "ADMIN", "STUDENT"]}>
-              <UserDashboard />
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <UserDashboard />
+              </AppShell>
             </ProtectedRoute>
           }
         />
@@ -212,8 +200,21 @@ const App = () => {
         <Route
           path="/edituser"
           element={
-            <ProtectedRoute allowedRoles={["PROFESSOR", "ADMIN", "STUDENT"]}>
-              <EditUser />
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <EditUser />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/newsfeed"
+          element={
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <Newsfeed />
+              </AppShell>
             </ProtectedRoute>
           }
         />
@@ -221,8 +222,10 @@ const App = () => {
         <Route
           path="/allprojects"
           element={
-            <ProtectedRoute allowedRoles={["PROFESSOR", "ADMIN", "STUDENT"]}>
-              <AllProjectList />
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <AllProjectList />
+              </AppShell>
             </ProtectedRoute>
           }
         />
@@ -230,39 +233,47 @@ const App = () => {
         <Route
           path="/project"
           element={
-            <ProtectedRoute allowedRoles={["PROFESSOR", "ADMIN", "STUDENT"]}>
-              <ProjectList />
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <ProjectList />
+              </AppShell>
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/project/add"
           element={
-            <ProtectedRoute allowedRoles={["PROFESSOR"]}>
-              <ProjectAdd />
+            <ProtectedRoute allowedRoles={['PROFESSOR']}>
+              <AppShell>
+                <ProjectAdd />
+              </AppShell>
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/project/:id"
           element={
-            <ProtectedRoute allowedRoles={["PROFESSOR", "ADMIN", "STUDENT"]}>
-              <ProjectLayout />
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <ProjectLayout />
+              </AppShell>
             </ProtectedRoute>
           }
         >
           <Route
             path=""
             element={
-              <ProtectedRoute allowedRoles={["PROFESSOR", "ADMIN", "STUDENT"]}>
-                <ProjectDetails />
+              <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+                <OldProjectDetails />
               </ProtectedRoute>
             }
           />
           <Route
             path="team"
             element={
-              <ProtectedRoute allowedRoles={["PROFESSOR", "ADMIN", "STUDENT"]}>
+              <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
                 <Team />
               </ProtectedRoute>
             }
@@ -270,40 +281,49 @@ const App = () => {
           <Route
             path="requests"
             element={
-              <ProtectedRoute allowedRoles={["PROFESSOR", "ADMIN"]}>
+              <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN']}>
                 <Requests />
               </ProtectedRoute>
             }
           />
         </Route>
+
         <Route
           path="/chat"
           element={
-            <ProtectedRoute allowedRoles={["STUDENT", "PROFESSOR", "ADMIN"]}>
-              <Chat />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/application"
-          element={
-            <ProtectedRoute allowedroles={["PROFESSOR", "ADMIN", "STUDENT"]}>
-              <ApplicationList />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/application/:id"
-          element={
-            <ProtectedRoute allowedRoles={["PROFESSOR", "ADMIN", "STUDENT"]}>
-              <ApplicationDetails />
+            <ProtectedRoute allowedRoles={['STUDENT', 'PROFESSOR', 'ADMIN']}>
+              <AppShell>
+                <Chat />
+              </AppShell>
             </ProtectedRoute>
           }
         />
 
+        <Route
+          path="/application"
+          element={
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <ApplicationList />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/application/:id"
+          element={
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <ApplicationDetails />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* 404 Not Found */}
         <Route path="*" element={<NotFound />} />
       </Routes>
-    </>
   );
 };
 

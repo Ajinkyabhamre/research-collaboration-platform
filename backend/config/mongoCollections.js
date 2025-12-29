@@ -25,3 +25,12 @@ export const updates = getCollectionFn("updates");
 export const applications = getCollectionFn("applications");
 export const comments = getCollectionFn("comments");
 export const messages = getCollectionFn("messages");
+
+// Home Feed V2 collections
+export const posts = getCollectionFn("posts");
+export const postLikes = getCollectionFn("postLikes");
+export const postComments = getCollectionFn("postComments");
+
+// Direct Messaging collections
+export const conversations = getCollectionFn("conversations");
+export const directMessages = getCollectionFn("directMessages");

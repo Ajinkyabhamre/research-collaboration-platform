@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery } from "@apollo/client";
 import queries from "../../queries.js";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 
 const departmentOptions = [
   { value: "ALL", label: "All" },
@@ -31,8 +31,8 @@ const departmentOptions = [
 ];
 
 const AllProjectList = () => {
-  const { authState } = useAuth();
-  const userId = authState.user.id;
+  const { user } = useCurrentUser();
+  const userId = user?._id;
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedDepartment, setSelectedDepartment] = useState("ALL");
 
@@ -84,6 +84,7 @@ const AllProjectList = () => {
     }
   }, [projectsData]);
 
+  if (!user) return <p className="loader">Loading user...</p>;
   if (projectsLoading || userLoading)
     return <p className="loader">Loading projects...</p>;
   if (projectsError)
@@ -151,7 +152,7 @@ const AllProjectList = () => {
                   </select>
                 </div>
                 <div className="col-auto d-flex">
-                  {authState.user.role === "STUDENT" && (
+                  {user?.role === "STUDENT" && (
                     <div className="d-flex">
                       {selectedProject?._id ? (
                         isUserEnrolled(selectedProject) ? (

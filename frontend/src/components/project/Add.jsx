@@ -2,7 +2,7 @@ import React, {useState} from "react";
 import {useMutation, useQuery} from "@apollo/client";
 import {useNavigate} from "react-router-dom";
 import queries from "../../queries";
-import {useAuth} from "../../context/AuthContext.jsx";
+import {useCurrentUser} from "../../hooks/useCurrentUser";
 import {Editor} from 'react-draft-wysiwyg';
 import {EditorState, convertToRaw} from 'draft-js';
 import draftToHtml from 'draftjs-to-html';
@@ -11,8 +11,8 @@ import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
 import "../../assets/css/editor.css"
 
 const AddProject = () => {
-    const {authState} = useAuth();
-    const userId = authState.user.id;
+    const { user } = useCurrentUser();
+    const userId = user?._id;
 
     const [title, setTitle] = useState("");
     const [department, setDepartment] = useState("");
@@ -55,6 +55,7 @@ const AddProject = () => {
         }
     };
 
+    if (!user) return <p className="loader">Loading user...</p>;
     if (departmentLoading) return <p className="loader">Loading departments...</p>;
     if (departmentError)
         return <p>Error loading departments: {departmentError.message}</p>;

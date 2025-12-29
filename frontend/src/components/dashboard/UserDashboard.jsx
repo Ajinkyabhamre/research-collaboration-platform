@@ -1,15 +1,15 @@
 import React, {useState} from 'react';
 import { Link } from 'react-router-dom';
-import {useQuery} from '@apollo/client'; 
+import {useQuery} from '@apollo/client';
 import queries from '../../queries';
 import ActionBar from '../common/ActionBar';
-import { useAuth } from "../../context/AuthContext";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import moment from 'moment';
 
 const UserDashboard = () => {
 
-  const { authState } = useAuth();
-  const userId = authState.user.id;
+  const { user } = useCurrentUser();
+  const userId = user?._id;
 
     
     // User Data
@@ -39,6 +39,11 @@ const UserDashboard = () => {
     return moment(formattedDate).format("MMM Do, YYYY");
   };
 
+  // If user not loaded yet
+  if (!user) {
+    return <p className="loader">Loading user...</p>;
+  }
+
   // If loading
   if (userLoading || updateLoading) {
     return <p className="loader">Loading...</p>;
@@ -48,13 +53,13 @@ const UserDashboard = () => {
     if(userError || updateError){ return <p className="error-message">Error loading: {userError? userError.message : updateError.message}</p>}
 
     // Return data
-    const user = userData.data.getUserById;
+    const userDetails = userData.data.getUserById;
     const updates = updatesData.data.updates;
     return(
         <main className="dashboard">
-            <ActionBar role={user.role} />
+            <ActionBar role={userDetails.role} />
             <div className="main-content">
-                <h1>Welcome {user.firstName} {user.lastName}</h1>
+                <h1>Welcome {userDetails.firstName} {userDetails.lastName}</h1>
                 <div className="dashboard-table">
                     {/* MAIN CARDS (Column) */}
                     <div className="d-column">
@@ -78,7 +83,7 @@ const UserDashboard = () => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {user.projects && user.projects.map((project) => {
+                                        {userDetails.projects && userDetails.projects.map((project) => {
                                             return(
                                                 <tr key={project._id}>
                                                     <td>{project.title}</td>
@@ -112,7 +117,7 @@ const UserDashboard = () => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {user.applications && user.applications.slice(0,10).map( (application) => {
+                                        {userDetails.applications && userDetails.applications.slice(0,10).map( (application) => {
                                             return (
                                                 <tr key={application._id}>
                                                     <td>{application.project.title}</td>
@@ -144,27 +149,27 @@ const UserDashboard = () => {
                                 <dl className="desc-list">
                                     <div>
                                         <dt>Name:</dt>
-                                        <dd>{user.firstName} {user.lastName}</dd>
+                                        <dd>{userDetails.firstName} {userDetails.lastName}</dd>
                                     </div>
                                     <div>
                                         <dt>Email:</dt>
-                                        <dd>{user.email}</dd>
+                                        <dd>{userDetails.email}</dd>
                                     </div>
                                     <div>
                                         <dt>Role:</dt>
-                                        <dd>{user.role}</dd>
+                                        <dd>{userDetails.role}</dd>
                                     </div>
                                     <div>
                                         <dt>Department: </dt>
-                                        <dd>{user.department}</dd>
+                                        <dd>{userDetails.department}</dd>
                                     </div>
                                     <div>
                                         <dt>Applications:</dt>
-                                        <dd>{user.numOfApplications}</dd>
+                                        <dd>{userDetails.numOfApplications}</dd>
                                     </div>
                                     <div>
                                         <dt>Projects:</dt>
-                                        <dd>{user.numOfProjects}</dd>
+                                        <dd>{userDetails.numOfProjects}</dd>
                                     </div>
                                 </dl>
                             </div>

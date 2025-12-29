@@ -7,10 +7,10 @@ import AnnouncementIcon from "../../../assets/svg/Announcement";
 import VoiceIcon from "../../../assets/svg/VoiceIcon";
 import Team from "../../../assets/svg/Team";
 import Requests from "../../../assets/svg/Requests";
-import { useAuth } from "../../../context/AuthContext"; // Import your AuthContext
+import { useCurrentUser } from "../../../hooks/useCurrentUser";
 
 const ActionBar = (props) => {
-  const { authState } = useAuth(); // Use the AuthContext to get authState
+  const { user } = useCurrentUser();
   const location = useLocation(); // Get the current route location
 
   useEffect(() => {
@@ -79,7 +79,7 @@ const ActionBar = (props) => {
             </li>
           </Link>
 
-          {authState.user.role === "PROFESSOR" && (
+          {user?.role === "PROFESSOR" && (
             <Link
               to={`/project/${props.projectId}/requests`}
               className="nav-link d-flex p-0"

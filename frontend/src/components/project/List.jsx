@@ -2,12 +2,12 @@ import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery } from "@apollo/client";
 import queries from "../../queries.js";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 
 const ProjectList = () => {
-  const { authState } = useAuth();
+  const { user } = useCurrentUser();
 
-  const userId = authState.user.id;
+  const userId = user?._id;
   const { data, loading, error, refetch } = useQuery(queries.GET_USER_BY_ID, {
     variables: { id: userId },
     fetchPolicy: "network-only",
@@ -41,6 +41,7 @@ const ProjectList = () => {
     }
   }, [data]);
 
+  if (!user) return <p className="loader">Loading user...</p>;
   if (loading) return <p className="loader">Loading projects...</p>;
   if (error) return <p>Error loading projects: {error.message}</p>;
 
@@ -68,7 +69,7 @@ const ProjectList = () => {
                           Details
                         </button>
                       </Link>
-                      {authState.user.role === "PROFESSOR" && (
+                      {user?.role === "PROFESSOR" && (
                         <button
                           type="button"
                           className="btn btn-danger ms-2"
@@ -94,7 +95,7 @@ const ProjectList = () => {
                       </button>
                     </div>
                   )}
-                  {authState.user.role === "PROFESSOR" && (
+                  {user?.role === "PROFESSOR" && (
                     <Link className="nav-link" to="/project/add">
                       <button type="button" className="btn btn-success ms-2">
                         Add

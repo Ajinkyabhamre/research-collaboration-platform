@@ -1,11 +1,11 @@
 import React, { useState } from "react";
 import { useQuery, useMutation } from "@apollo/client";
 import queries from "../queries";
-import { useAuth } from "../context/AuthContext";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 
 const Newsfeed = () => {
-  const { authState } = useAuth();
-  const userId = authState.user.id; // User ID for adding comments
+  const { user } = useCurrentUser();
+  const userId = user?._id; // User ID for adding comments
 
   const { loading, error, data, refetch } = useQuery(queries.GET_UPDATES);
 
@@ -49,6 +49,7 @@ const Newsfeed = () => {
     "PROJECT_COMPLETION",
   ];
 
+  if (!user) return <p className="loader">Loading user...</p>;
   if (loading) return <p>Loading updates...</p>;
   if (error) return <p>Error loading updates. Please try again later.</p>;
 
