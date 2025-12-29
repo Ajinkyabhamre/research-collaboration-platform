@@ -1,7 +1,7 @@
 import React from 'react';
 import { PageContainer, PageHeader } from '../components/layout/PageContainer';
 import { Card } from '../components/ui/Card';
-import { Tabs } from '../components/ui/Tabs';
+import { SimpleTabs as Tabs } from '../components/ui/Tabs';
 import { EmptyState } from '../components/ui/EmptyState';
 import { NotificationCard } from '../components/notifications/NotificationCard';
 import { mockNotifications } from '../mocks/notifications';

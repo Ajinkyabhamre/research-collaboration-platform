@@ -5,6 +5,8 @@ import { Server as SocketServer } from "socket.io";
 import { addMessage, getMessagesByChannel } from "./messageOperations/index.js";
 import { users as usersCollection } from "./config/mongoCollections.js";
 import { ObjectId } from "mongodb";
+import { fileURLToPath } from "url";
+import path from "path";
 
 dotenv.config();
 
@@ -14,6 +16,8 @@ const clerkClient = createClerkClient({
 });
 
 // Socket.io server setup with Express for health check
+// PORT OWNERSHIP: This file owns port 4001 (Socket.IO + health check)
+// server.js owns port 4000 (GraphQL API + uploads + static files)
 import express from "express";
 
 const app = express();
@@ -37,10 +41,15 @@ app.get("/health", (_req, res) => {
   });
 });
 
-// Start Socket.io server
-httpServer.listen(4001, () => {
-  console.log(`🔌 Socket.IO server running on http://localhost:4001`);
-});
+// Start Socket.io server ONLY when run directly (not when imported by resolvers)
+// This prevents EADDRINUSE errors when resolvers.js imports { io } from this file
+const __filename = fileURLToPath(import.meta.url);
+const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === __filename;
+if (isMainModule) {
+  httpServer.listen(4001, () => {
+    console.log(`🔌 Socket.IO server running on http://localhost:4001`);
+  });
+}
 
 // Socket.IO JWT Authentication Middleware
 io.use(async (socket, next) => {

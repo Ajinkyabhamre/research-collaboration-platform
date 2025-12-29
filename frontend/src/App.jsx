@@ -4,7 +4,7 @@ import { SignIn, SignUp, SignedIn, SignedOut } from '@clerk/clerk-react';
 
 import { AppShell } from './components/layout/AppShell';
 import ProtectedRoute from './components/ProtectedRoute';
-import { useMessageNotifications } from './hooks/useMessageNotifications';
+import { useMessageNotifications } from './hooks/useMessageNotifications.jsx';
 
 // New Pages
 import { Landing } from './pages/Landing';

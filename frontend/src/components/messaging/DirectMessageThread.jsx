@@ -6,7 +6,7 @@ import queries from '../../queries';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Avatar } from '../ui/Avatar';
-import { Alert } from '../ui/Alert';
+import { InlineAlert as Alert } from '../ui/Alert';
 import { cn } from '../../lib/utils';
 import { toast } from 'sonner';
 import { Send, AlertCircle } from 'lucide-react';

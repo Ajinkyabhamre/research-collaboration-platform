@@ -9,7 +9,7 @@ import { Avatar } from '../components/ui/Avatar';
 import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { InlineAlert } from '../components/ui/Alert';
-import { Tabs } from '../components/ui/Tabs';
+import { SimpleTabs as Tabs } from '../components/ui/Tabs';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { ArrowLeft, Briefcase, CheckCircle, Users, GraduationCap } from 'lucide-react';
 import { toast } from '../lib/toast';
