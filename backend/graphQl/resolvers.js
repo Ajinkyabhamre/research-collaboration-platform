@@ -182,7 +182,6 @@ export const resolvers = {
 
       //If users are cached, return the parsed JSON (JSON string to object)
       if (cachedUsers) {
-        console.log("Returning users from cache.");
         return JSON.parse(cachedUsers);
       }
 
@@ -192,14 +191,12 @@ export const resolvers = {
 
       //If no users, throw GraphQLError
       if (allUsers.length === 0) {
-        console.log("No users found in the database.");
         return [];
       }
 
       //Cache pulled users, set to cachekey
       //Expiration: 1 hour (60 x 60 = 3600 seconds)
       await redisClient.set(cacheKey, JSON.stringify(allUsers), { EX: 3600 });
-      console.log("Users have been fetched from database and are now cached.");
 
       //Return allUsers
       return allUsers;
@@ -462,7 +459,6 @@ export const resolvers = {
 
       //If projects are cached, return the parsed JSON (JSON string to object)
       if (cachedProjects) {
-        console.log("Returning projects from cache.");
         return JSON.parse(cachedProjects);
       }
 
@@ -472,7 +468,6 @@ export const resolvers = {
 
       //If no projects, throw GraphQLError
       if (allProjects.length === 0) {
-        console.log("No projects found in the database.");
         return [];
       }
 
@@ -481,9 +476,6 @@ export const resolvers = {
       await redisClient.set(cacheKey, JSON.stringify(allProjects), {
         EX: 3600,
       });
-      console.log(
-        "Projects have been fetched from database and are now cached."
-      );
 
       //Return
       return allProjects;
@@ -500,7 +492,6 @@ export const resolvers = {
 
       // If updates are cached, return the parsed JSON (JSON string to object)
       if (cachedUpdates) {
-        console.log("Returning updates from cache.");
         return JSON.parse(cachedUpdates);
       }
 
@@ -512,15 +503,11 @@ export const resolvers = {
 
       // If no updates are found, throw an error
       if (allUpdates.length === 0) {
-        console.log("No updates found in the database.");
         return [];
       }
 
       // Cache updates for 1 hour
       await redisClient.set(cacheKey, JSON.stringify(allUpdates), { EX: 3600 });
-      console.log(
-        "Updates have been fetched from the database and are now cached."
-      );
 
       // Return all updates
       return allUpdates;
@@ -537,7 +524,6 @@ export const resolvers = {
 
       // If applications are cached, return the parsed JSON (JSON string to object)
       if (cachedApplications) {
-        console.log("Returning applications from cache.");
         return JSON.parse(cachedApplications);
       }
 
@@ -549,7 +535,6 @@ export const resolvers = {
 
       // If no applications are found, throw an error
       if (allApplications.length === 0) {
-        console.log("No applications found in the database.");
         return [];
       }
 
@@ -557,10 +542,6 @@ export const resolvers = {
       await redisClient.set(cacheKey, JSON.stringify(allApplications), {
         EX: 3600,
       });
-
-      console.log(
-        "Applications have been fetched from the database and are now cached."
-      );
 
       // Return all applications
       return allApplications;
@@ -577,7 +558,6 @@ export const resolvers = {
 
       // If comments are cached, return the parsed JSON (JSON string to object)
       if (cachedComments) {
-        console.log("Returning comments from cache.");
         return JSON.parse(cachedComments);
       }
 
@@ -589,7 +569,6 @@ export const resolvers = {
 
       // If no comments are found, throw an error
       if (allComments.length === 0) {
-        console.log("No comments found in the database.");
         return [];
       }
 
@@ -597,10 +576,6 @@ export const resolvers = {
       await redisClient.set(cacheKey, JSON.stringify(allComments), {
         EX: 3600,
       });
-
-      console.log(
-        "Comments have been fetched from the database and are now cached."
-      );
 
       // Return all comments
       return allComments;
@@ -638,7 +613,6 @@ export const resolvers = {
 
       //If the cachedUser is cached, return the parsed JSON (JSON string to object)
       if (cachedUser) {
-        console.log("Returning user from cache.");
         return JSON.parse(cachedUser);
       }
 
@@ -657,7 +631,6 @@ export const resolvers = {
       //Set user into redis Cache; set to cacheKey
       //No expiration on cache
       await redisClient.set(cacheKey, JSON.stringify(user));
-      console.log("User has been fetched from database and is now cached.");
 
       //Return user
       return user;
@@ -695,7 +668,6 @@ export const resolvers = {
 
       //If the project is cached, return the parsed JSON (JSON string to object)
       if (cachedProject) {
-        console.log("Returning project from cache.");
         return JSON.parse(cachedProject);
       }
 
@@ -715,7 +687,6 @@ export const resolvers = {
       //Set project into redis Cache; set to cacheKey
       //No expiration on cache
       await redisClient.set(cacheKey, JSON.stringify(project));
-      console.log("Project has been fetched from database and is now cached.");
 
       //Return project
       return project;
@@ -752,7 +723,6 @@ export const resolvers = {
 
       // If the update is cached, return the parsed JSON
       if (cachedUpdate) {
-        console.log("Returning update from cache.");
         return JSON.parse(cachedUpdate);
       }
 
@@ -769,7 +739,6 @@ export const resolvers = {
 
       // Cache update indefinitely
       await redisClient.set(cacheKey, JSON.stringify(update));
-      console.log("Update has been fetched from database and is now cached.");
 
       // Return update
       return update;
@@ -787,7 +756,6 @@ export const resolvers = {
       const cachedUpdates = await redisClient.get(cacheKey);
 
       if (cachedUpdates) {
-        console.log('Returning getUpdatesByProjectId from cache.');
         return JSON.parse(cachedUpdates);
       }
 
@@ -802,8 +770,6 @@ export const resolvers = {
 
       // Cache for 10 min
       await redisClient.set(cacheKey, JSON.stringify(projectUpdates), { EX: 600 });
-
-      console.log('UpdatesByProjectId fetched from database and cached.');
 
       return projectUpdates;
     },
@@ -839,7 +805,6 @@ export const resolvers = {
 
       // If the application is cached, return the parsed JSON
       if (cachedApplication) {
-        console.log("Returning application from cache.");
         return JSON.parse(cachedApplication);
       }
 
@@ -858,9 +823,6 @@ export const resolvers = {
 
       // Cache application indefinitely
       await redisClient.set(cacheKey, JSON.stringify(application));
-      console.log(
-        "Application has been fetched from database and is now cached."
-      );
 
       // Return application
       return application;
@@ -896,7 +858,6 @@ export const resolvers = {
       const cachedComment = await redisClient.get(cacheKey);
 
       if (cachedComment) {
-        console.log("Returning comment from cache.");
         return JSON.parse(cachedComment);
       }
 
@@ -912,7 +873,6 @@ export const resolvers = {
 
       // Cache comment
       await redisClient.set(cacheKey, JSON.stringify(comment));
-      console.log("Comment has been fetched from database and is now cached.");
 
       return comment;
     },
@@ -1147,7 +1107,6 @@ export const resolvers = {
 
       // If comments are cached, return them
       if (cachedComments) {
-        console.log("Returning comments from cache.");
         return JSON.parse(cachedComments);
       }
 
@@ -1197,7 +1156,6 @@ export const resolvers = {
 
       // If comments are cached, return them
       if (cachedComments) {
-        console.log("Returning comments from cache.");
         return JSON.parse(cachedComments);
       }
 
@@ -1248,7 +1206,6 @@ export const resolvers = {
 
       //If the department is cached, return the parsed JSON (JSON string to object)
       if (cachedDepartment) {
-        console.log("Returning projects from stated department from cache.");
         return JSON.parse(cachedDepartment);
       }
 
@@ -1261,7 +1218,6 @@ export const resolvers = {
 
       //If no projects by department found, retrun an empty array
       if (projectsByDepartmnet.length === 0) {
-        console.log("No projects found for the department.");
         //Why empty array and not throw error? Allowing the possibility that projects of this department simply not added yet.
         return [];
       }
@@ -1271,9 +1227,6 @@ export const resolvers = {
       await redisClient.set(cacheKey, JSON.stringify(projectsByDepartmnet), {
         EX: 3600,
       });
-      console.log(
-        "Projects by department have been fetched from database and are now cached."
-      );
 
       //Return the projectsByDepartment
       return projectsByDepartmnet;
@@ -1315,7 +1268,6 @@ export const resolvers = {
 
       // If the subject is cached, return the parsed JSON (JSON string to object)
       if (cachedSubject) {
-        console.log("Returning updates from stated subject from cache.");
         return JSON.parse(cachedSubject);
       }
 
@@ -1328,7 +1280,6 @@ export const resolvers = {
 
       // If no updates by subject found, return an empty array
       if (updatesBySubject.length === 0) {
-        console.log("No updates found for the subject.");
         // Why empty array and not throw error? Allowing the possibility that updates of this subject have simply not been added yet.
         return [];
       }
@@ -1338,9 +1289,6 @@ export const resolvers = {
       await redisClient.set(cacheKey, JSON.stringify(updatesBySubject), {
         EX: 3600,
       });
-      console.log(
-        "Updates by subject have been fetched from database and are now cached."
-      );
 
       // Return the updatesBySubject
       return updatesBySubject;
@@ -1375,7 +1323,6 @@ export const resolvers = {
       const cachedProjectsByYear = await redisClient.get(cacheKey);
 
       if (cachedProjectsByYear) {
-        console.log("Returning projects by stated years from cache.");
         return JSON.parse(cachedProjectsByYear);
       }
 
@@ -1396,7 +1343,6 @@ export const resolvers = {
       });
 
       if (projectsByCreatedRange.length === 0) {
-        console.log("For the specified year range, no projects found.");
         return [];
       }
 
@@ -1405,9 +1351,6 @@ export const resolvers = {
       await redisClient.set(cacheKey, JSON.stringify(projectsByCreatedRange), {
         EX: 3600,
       });
-      console.log(
-        "Projects for this year range have been fetched from database and are now cached."
-      );
 
       //Return the projects from within the range
       return projectsByCreatedRange;
@@ -1448,7 +1391,6 @@ export const resolvers = {
 
       //If projects cached based on search term, return
       if (cachedProjectsByTitle) {
-        console.log("Returning projects found by search term from cache.");
         return JSON.parse(cachedProjectsByTitle);
       }
 
@@ -1463,7 +1405,6 @@ export const resolvers = {
 
       // If no projects are found, return an empty array
       if (projectsByTitle.length === 0) {
-        console.log("No projects found matching the given search term.");
         return [];
       }
 
@@ -1491,7 +1432,6 @@ export const resolvers = {
       const cachedFeed = await redisClient.get(cacheKey);
 
       if (cachedFeed) {
-        console.log('Returning projectsFeed from cache.');
         return JSON.parse(cachedFeed);
       }
 
@@ -1727,8 +1667,6 @@ export const resolvers = {
         EX: 600
       });
 
-      console.log('ProjectsFeed fetched from database and cached.');
-
       // 11. RETURN
       return result;
     },
@@ -1751,7 +1689,6 @@ export const resolvers = {
       const cachedFeed = await redisClient.get(cacheKey);
 
       if (cachedFeed) {
-        console.log('Returning appliedProjectsFeed from cache.');
         return JSON.parse(cachedFeed);
       }
 
@@ -1974,8 +1911,6 @@ export const resolvers = {
       // ========== CACHE RESULT (5 min TTL - shorter due to status changes) ==========
       await redisClient.set(cacheKey, JSON.stringify(result), { EX: 300 });
 
-      console.log('AppliedProjectsFeed fetched from database and cached.');
-
       return result;
     },
 
@@ -2014,7 +1949,6 @@ export const resolvers = {
 
       //If users cachedUsersBySearch by searchTerm, return
       if (cachedUsersBySearch) {
-        console.log("Returning searched users from cache.");
         return JSON.parse(cachedUsersBySearch);
       }
 
@@ -2034,7 +1968,6 @@ export const resolvers = {
 
       //If no user for search term, return an empty array
       if (usersBySearch.length === 0) {
-        console.log("A user was not found matching the search criteria.");
         return [];
       }
 
@@ -2043,9 +1976,6 @@ export const resolvers = {
       await redisClient.set(cacheKey, JSON.stringify(usersBySearch), {
         EX: 3600,
       });
-      console.log(
-        "Searched users were fetched from database and are now cached."
-      );
 
       //Return the users pulled based on search term (name)
       return usersBySearch;
@@ -2161,7 +2091,6 @@ export const resolvers = {
       const professorObjectIds = parentValue.professors.map(
         (id) => new ObjectId(id)
       );
-      console.log(professorObjectIds);
       const projectProfessors = await users
         .find({
           _id: {
@@ -3048,9 +2977,6 @@ export const resolvers = {
           commenterId: args._id,
         });
 
-        console.log(
-          `Deleted ${deletedApplications.deletedCount} applications, ${deletedUpdates.deletedCount} updates, and ${deletedComments.deletedCount} comments for user ${args._id}`
-        );
       } catch (error) {
         console.error("Error cleaning up dependencies:", error);
         throw new GraphQLError(
@@ -3086,9 +3012,6 @@ export const resolvers = {
           await redisClient.del(`comment:${commentId}`);
         }
 
-        console.log(
-          "Redis caches cleared for applications, updates, and comments."
-        );
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
       } catch (error) {
         console.error("Failed to update Redis caches:", error);
@@ -3538,10 +3461,6 @@ export const resolvers = {
         const deletedApplications = await applications.deleteMany({
           projectId: args._id,
         });
-
-        console.log(
-          `Deleted ${deletedUpdates.deletedCount} updates and ${deletedApplications.deletedCount} applications for project ${args._id}`
-        );
       } catch (error) {
         console.error("Error cleaning up dependencies:", error);
         throw new GraphQLError(
@@ -3571,10 +3490,6 @@ export const resolvers = {
         for (let applicationId of applicationIds) {
           await redisClient.del(`application:${applicationId}`);
         }
-
-        console.log(
-          "Redis caches cleared for project, updates, and applications."
-        );
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
       } catch (error) {
         console.error("Failed to update Redis caches:", error);
@@ -3877,9 +3792,6 @@ export const resolvers = {
         const deletedComments = await comments.deleteMany({
           destinationId: args._id,
         });
-        console.log(
-          `Deleted ${deletedComments.deletedCount} comments for update ${args._id}.`
-        );
       } catch (error) {
         console.error("Error deleting related comments:", error);
         throw new GraphQLError("Failed to delete related comments.", {
@@ -3906,10 +3818,6 @@ export const resolvers = {
         for (let commentId of commentIds) {
           await redisClient.del(`comment:${commentId}`);
         }
-
-        console.log(
-          `Redis caches cleared for update ${args._id} and related comments.`
-        );
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
         throw new GraphQLError(
@@ -4075,11 +3983,9 @@ export const resolvers = {
       });
 
       // Pull applications collection
-      console.log("Fetching application collection...");
       const applications = await applicationCollection();
 
       // Find the application
-      console.log(`Looking for application with ID: ${args._id}`);
       let applicationToUpdate = await applications.findOne({
         _id: new ObjectId(args._id),
       });
@@ -4234,9 +4140,6 @@ export const resolvers = {
         const deletedComments = await comments.deleteMany({
           destinationId: args._id,
         });
-        console.log(
-          `Deleted ${deletedComments.deletedCount} comments for application ${args._id}.`
-        );
       } catch (error) {
         console.error("Error deleting related comments:", error);
         throw new GraphQLError("Failed to delete related comments.", {
@@ -4259,10 +4162,6 @@ export const resolvers = {
         for (let commentId of commentIds) {
           await redisClient.del(`comment:${commentId}`);
         }
-
-        console.log(
-          `Redis caches cleared for application ${args._id} and related comments.`
-        );
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
         throw new GraphQLError(
@@ -4423,13 +4322,10 @@ export const resolvers = {
 
       // Update Redis cache
       try {
-        console.log("Updating Redis cache for comment...");
         const cacheKey = `comment:${newComment._id}`;
         await redisClient.del("comments");
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
         await redisClient.set(cacheKey, JSON.stringify(newComment));
-
-        console.log("Redis cache updated successfully.");
       } catch (redisError) {
         console.error("Failed to update Redis cache:", redisError);
         throw new GraphQLError(
@@ -4566,8 +4462,6 @@ export const resolvers = {
           }
         );
       }
-
-      console.log("Comment successfully updated:", updatedComment);
 
       // Return the updated comment
       return updatedComment;
@@ -4724,7 +4618,6 @@ export const resolvers = {
       // Invalidate feed cache (optional)
       try {
         await redisClient.del("feed:*");
-        console.log("Feed cache invalidated after post creation.");
       } catch (error) {
         console.error("Failed to invalidate feed cache:", error);
       }
@@ -4851,7 +4744,6 @@ export const resolvers = {
       // Invalidate comments cache (optional)
       try {
         await redisClient.del(`comments:${args.postId}`);
-        console.log(`Comments cache invalidated for post ${args.postId}.`);
       } catch (error) {
         console.error("Failed to invalidate comments cache:", error);
       }
@@ -4911,7 +4803,6 @@ export const resolvers = {
       // Invalidate feed cache
       try {
         await redisClient.del("feed:all");
-        console.log(`Feed cache invalidated after deleting post ${args.postId}.`);
       } catch (error) {
         console.error("Failed to invalidate feed cache:", error);
       }
@@ -5031,7 +4922,6 @@ export const resolvers = {
         await redisClient.del(`conversations:${currentUserId}`);
         await redisClient.del(`conversations:${args.recipientId}`);
         await redisClient.del(`conversation:${conversationId}`);
-        console.log(`Conversation caches invalidated after sending message.`);
       } catch (error) {
         console.error('Failed to invalidate conversation caches:', error);
       }
@@ -5040,10 +4930,6 @@ export const resolvers = {
       try {
         const roomName = `conversation:${conversationId}`;
         const socketsInRoom = await io.in(roomName).fetchSockets();
-        console.log(`[DM] Emitting message to room ${roomName}, sockets in room: ${socketsInRoom.length}`);
-        socketsInRoom.forEach(s => {
-          console.log(`[DM]   - Socket ${s.id} in room`);
-        });
 
         // Populate sender object for real-time message
         const messageWithSender = {
@@ -5072,8 +4958,6 @@ export const resolvers = {
             timestamp: now
           }
         });
-
-        console.log(`[DM] Real-time events sent for message in conversation ${conversationId}`);
       } catch (error) {
         console.error('Failed to send Socket.IO events:', error);
         // Don't fail the mutation if Socket.IO fails
@@ -5142,7 +5026,6 @@ export const resolvers = {
       try {
         await redisClient.del(`conversations:${currentUserId}`);
         await redisClient.del(`conversation:${args.conversationId}`);
-        console.log(`Conversation caches invalidated after marking as read.`);
       } catch (error) {
         console.error('Failed to invalidate conversation caches:', error);
       }
@@ -5161,8 +5044,6 @@ export const resolvers = {
           conversationId: args.conversationId,
           readAt: now
         });
-
-        console.log(`[READ RECEIPT] User ${currentUserId} marked conversation ${args.conversationId} as read`);
       } catch (error) {
         console.error('[READ RECEIPT] Failed to emit Socket.IO event:', error);
       }

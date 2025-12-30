@@ -49,24 +49,8 @@ async function authenticateUser(authHeader) {
     const clerkUser = await clerkClient.users.getUser(userId);
     const email = clerkUser.emailAddresses?.[0]?.emailAddress || clerkUser.email;
 
-    console.log("[AUTH] Clerk user verification:", {
-      clerkUserId: clerkUser.id,
-      email,
-      firstName: clerkUser.firstName,
-      lastName: clerkUser.lastName,
-      hasEmail: !!email,
-    });
-
     // Get users collection
     const users = await usersCollection();
-
-    // Log database connection info
-    const dbName = users.s?.db?.databaseName || users.dbName || "unknown";
-    const collectionName = users.collectionName || users.s?.namespace?.collection || "unknown";
-    console.log("[AUTH] MongoDB connection:", {
-      database: dbName,
-      collection: collectionName,
-    });
 
     // Ensure user is provisioned in MongoDB (atomic upsert by clerkId)
     let currentUser;
@@ -152,7 +136,6 @@ io.use(async (socket, next) => {
     socket.userEmail = clerkUser.emailAddresses?.[0]?.emailAddress || clerkUser.email;
     socket.clerkId = clerkUser.id;
 
-    console.log(`[Socket.IO Auth] User authenticated: ${socket.userEmail} (${socket.userId})`);
     next();
   } catch (error) {
     console.error('[Socket.IO Auth] Authentication failed:', error.message);
@@ -161,8 +144,6 @@ io.use(async (socket, next) => {
 });
 
 io.on("connection", async (socket) => {
-  console.log(`[Socket] ${socket.userEmail} connected`);
-
   // Track as online
   activeUsers[socket.userId] = socket.id;
 
@@ -187,38 +168,28 @@ io.on("connection", async (socket) => {
       const roomName = `conversation:${conv._id}`;
       socket.join(roomName);
     });
-
-    console.log(`[Socket] ${socket.userEmail} joined ${userConversations.length} conversation rooms`);
   } catch (error) {
     console.error('[Socket] Failed to join conversation rooms:', error);
   }
 
   // Handle user connection and channel subscription (legacy project chat)
   socket.on("user_connected", (data) => {
-    console.log("User connected (legacy):", data);
     socket.broadcast.emit("user_joined", { user: data });
   });
 
   // Handle joining a channel
   socket.on("join_channel", async (channel) => {
-    console.log(`${socket.id} joined channel: ${channel}`);
     try {
       const messages = await getMessagesByChannel(channel);
       socket.emit("previous_messages", messages);
     } catch (e) {
-      console.log(e);
+      console.error('[Socket] Failed to get messages:', e);
     }
     socket.join(channel);
   });
 
   // Handle chat message events
   socket.on("chat_message", async (data) => {
-    console.log(
-      "Message received for channel:",
-      data.channel,
-      "Message:",
-      data
-    );
 
     const messageDocument = {
       channel: data.channel,
@@ -252,7 +223,6 @@ io.on("connection", async (socket) => {
 
   // Handle user disconnection
   socket.on("disconnect", (reason) => {
-    console.log(`[Socket] ${socket.userEmail} disconnected (${reason})`);
     delete activeUsers[socket.userId];
 
     // Broadcast offline status
@@ -431,20 +401,7 @@ const apolloServer = new ApolloServer({
 // Start server
 const startServer = async () => {
   // PHASE 1.1 - Print MongoDB connection details at startup
-  console.log("\n" + "=".repeat(70));
-  console.log("🚀 BACKEND SERVER STARTUP");
-  console.log("=".repeat(70));
-
-  // Redact credentials from connection string
-  const redactedUrl = process.env.mongoServerUrl
-    ? process.env.mongoServerUrl.replace(/\/\/([^:]+):([^@]+)@/, "//$1:****@")
-    : "NOT_SET";
-
-  console.log("\n📡 MongoDB Configuration:");
-  console.log(`   Host (redacted): ${redactedUrl}`);
-  console.log(`   Database name:   ${process.env.mongoDbname || "NOT_SET"}`);
-  console.log(`   Collection:      users`);
-  console.log();
+  console.log("🚀 Starting backend server...");
 
   // Initialize database indexes
   await initializeDatabase();
@@ -495,18 +452,9 @@ const startServer = async () => {
   );
 
   httpServer.listen(4000, () => {
-    console.log(`
-======================================================================
-🚀 UNIFIED SERVER STARTUP - GraphQL + Socket.IO
-======================================================================
-`);
-    console.log(`📡 GraphQL Server ready at: http://localhost:4000/graphql`);
-    console.log(`🔌 Socket.IO Server running on same server (port 4000)`);
-    console.log(`📁 Static files served at: http://localhost:4000/static`);
-    console.log(`📤 Upload endpoint at: http://localhost:4000/api/upload`);
-    console.log(`
-======================================================================
-`);
+    console.log(`✅ Server ready at http://localhost:4000`);
+    console.log(`   GraphQL: http://localhost:4000/graphql`);
+    console.log(`   Socket.IO + Uploads ready`);
   });
 };
 
