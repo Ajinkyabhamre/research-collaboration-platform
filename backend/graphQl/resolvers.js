@@ -775,6 +775,39 @@ export const resolvers = {
       return update;
     },
 
+    //QUERY: getUpdatesByProjectId(projectId: String!, limit: Int): [Update]
+    //Purpose: Get recent updates for a specific project (simple last-N pagination)
+    //Auth: Public (anyone can view project updates)
+    //Cache: 10 min TTL
+
+    getUpdatesByProjectId: async (_, { projectId, limit = 10 }) => {
+      helpers.checkArg(projectId, 'string', 'projectId');
+
+      const cacheKey = `getUpdatesByProjectId:${projectId}:${limit}`;
+      const cachedUpdates = await redisClient.get(cacheKey);
+
+      if (cachedUpdates) {
+        console.log('Returning getUpdatesByProjectId from cache.');
+        return JSON.parse(cachedUpdates);
+      }
+
+      const updates = await updateCollection();
+
+      // Fetch updates for this project, sorted by postedDate descending
+      const projectUpdates = await updates
+        .find({ projectId: projectId })
+        .sort({ postedDate: -1 })
+        .limit(Math.min(limit, 50)) // Max 50
+        .toArray();
+
+      // Cache for 10 min
+      await redisClient.set(cacheKey, JSON.stringify(projectUpdates), { EX: 600 });
+
+      console.log('UpdatesByProjectId fetched from database and cached.');
+
+      return projectUpdates;
+    },
+
     //QUERY: getApplicationById(_id: String!): Application
     //Purpose: Fetch an application by ID from MongoDB; check Redis cache first
     //Cache: Cached by application ID in Redis indefinitely
@@ -3644,6 +3677,9 @@ export const resolvers = {
         const cacheKey = `update:${updateToAdd._id}`;
         // Delete cache for updates, as these are no longer accurate
         await redisClient.del("updates");
+        // Clear getUpdatesByProjectId cache for this project
+        await redisClient.del(`getUpdatesByProjectId:${args.projectId}:10`);
+        await redisClient.del(`getUpdatesByProjectId:${args.projectId}:50`);
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
         await redisClient.set(cacheKey, JSON.stringify(updateToAdd));
       } catch (error) {
@@ -3751,6 +3787,9 @@ export const resolvers = {
       // Update Redis cache
       try {
         await redisClient.del("updates"); // Clear updates cache
+        // Clear getUpdatesByProjectId cache for this project
+        await redisClient.del(`getUpdatesByProjectId:${updateToUpdate.projectId}:10`);
+        await redisClient.del(`getUpdatesByProjectId:${updateToUpdate.projectId}:50`);
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
         await redisClient.set(
           `update:${args._id}`,
@@ -3854,6 +3893,9 @@ export const resolvers = {
         await redisClient.del("updates");
         // Delete the individual cache for this update
         await redisClient.del(`update:${args._id}`);
+        // Clear getUpdatesByProjectId cache for this project
+        await redisClient.del(`getUpdatesByProjectId:${deletedUpdate.projectId}:10`);
+        await redisClient.del(`getUpdatesByProjectId:${deletedUpdate.projectId}:50`);
 
         // Delete the general comments cache as it's outdated
         await redisClient.del("comments");

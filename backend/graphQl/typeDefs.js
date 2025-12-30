@@ -62,9 +62,16 @@ export const typeDefs = `#graphql
             # getUpdateById(_id: String!): Update
             # Purpose: Retrieves a single update by ID.
             # Caching: No expiration time; completed in resolvers.js.
-            
+
                 getUpdateById(_id: String!): Update
-            
+
+            # getUpdatesByProjectId(projectId: String!, limit: Int): [Update]
+            # Purpose: Get recent updates for a specific project (simple last-N pagination)
+            # Auth: Public (anyone can view project updates)
+            # Caching: 10 min TTL
+
+                getUpdatesByProjectId(projectId: String!, limit: Int = 10): [Update]
+
             # getApplicationById(_id: String!): Application
             # Purpose: Retrieves a single application by ID.
             # Caching: No expiration time; completed in resolvers.js.

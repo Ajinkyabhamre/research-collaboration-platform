@@ -153,6 +153,25 @@ const GET_APPLICATIONS = gql`
     }
   }
 `;
+const GET_UPDATES_BY_PROJECT_ID = gql`
+  query GetUpdatesByProjectId($projectId: String!, $limit: Int) {
+    getUpdatesByProjectId(projectId: $projectId, limit: $limit) {
+      _id
+      posterUser {
+        _id
+        firstName
+        lastName
+        profilePhoto
+        role
+      }
+      subject
+      content
+      postedDate
+      numOfComments
+    }
+  }
+`;
+
 const GET_UPDATES = gql`
   query Updates {
     updates {
@@ -1141,6 +1160,7 @@ let exported = {
   APPLIED_PROJECTS_FEED,
   GET_APPLICATIONS,
   GET_UPDATES,
+  GET_UPDATES_BY_PROJECT_ID,
   GET_USER_BY_ID,
   GET_PROJECT_BY_ID,
   GET_UPDATE_BY_ID,
