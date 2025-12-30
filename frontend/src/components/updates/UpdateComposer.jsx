@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@apollo/client';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
-import { Textarea } from '../ui/Textarea';
+import { Textarea } from '../ui/Input';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/Select';
 import { Megaphone } from 'lucide-react';
 import { toast } from 'sonner';
