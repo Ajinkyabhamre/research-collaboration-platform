@@ -14,6 +14,8 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { ArrowLeft, Briefcase, CheckCircle, Users, GraduationCap } from 'lucide-react';
 import { toast } from '../lib/toast';
 import queries from '../queries';
+import { UpdatesList } from '../components/updates/UpdatesList';
+import { UpdateComposer } from '../components/updates/UpdateComposer';
 
 const formatDepartment = (dept) => {
   const deptMap = {
@@ -147,7 +149,23 @@ export const ProjectDetails = () => {
     (app) => app.applicant._id === user?._id
   );
 
+  // Check if user is a project member
+  const isProjectMember =
+    project.professors?.some((prof) => prof._id === user?._id) ||
+    project.students?.some((student) => student._id === user?._id);
+
   const tabs = [
+    {
+      label: 'Updates',
+      content: (
+        <div className="space-y-6">
+          {isProfessorOrAdmin && isProjectMember && (
+            <UpdateComposer projectId={id} />
+          )}
+          <UpdatesList projectId={id} limit={10} />
+        </div>
+      ),
+    },
     {
       label: 'Professors',
       content: (
@@ -267,7 +285,7 @@ export const ProjectDetails = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Team Members</CardTitle>
+              <CardTitle>Project Information</CardTitle>
             </CardHeader>
             <CardContent>
               <Tabs
