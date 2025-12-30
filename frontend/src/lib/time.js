@@ -52,3 +52,51 @@ export function safeTruncate(text, limit = 240) {
     isTruncated: true,
   };
 }
+
+/**
+ * Format read receipt timestamp
+ * @param {string} isoString - ISO date string
+ * @returns {string} - "Seen 2m ago", "Seen at 3:45 PM", etc.
+ */
+export function formatReadReceipt(isoString) {
+  if (!isoString) return '';
+
+  const now = new Date();
+  const date = new Date(isoString);
+  const diffMs = now - date;
+  const diffMinutes = Math.floor(diffMs / 1000 / 60);
+
+  // Less than 1 minute
+  if (diffMinutes < 1) return 'Seen just now';
+
+  // Less than 60 minutes
+  if (diffMinutes < 60) return `Seen ${diffMinutes}m ago`;
+
+  // Today - show time
+  const isToday = date.toDateString() === now.toDateString();
+  if (isToday) {
+    const timeStr = date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+    return `Seen at ${timeStr}`;
+  }
+
+  // Yesterday
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) {
+    return 'Seen yesterday';
+  }
+
+  // Within last week
+  const diffDays = Math.floor(diffMinutes / 1440);
+  if (diffDays < 7) {
+    const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+    return `Seen ${dayName}`;
+  }
+
+  // Older - show date
+  return `Seen ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+}

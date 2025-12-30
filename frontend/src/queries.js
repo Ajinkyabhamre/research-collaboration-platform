@@ -467,29 +467,16 @@ const SEARCH_PROJECT_BY_TITLE = gql`
   }
 `;
 const SEARCH_USER_BY_NAME = gql`
-  query Query($searchTerm: String!) {
+  query SearchUserByName($searchTerm: String!) {
     searchUserByName(searchTerm: $searchTerm) {
       _id
       firstName
       lastName
       email
-      password
       role
       department
-      bio
-      applications {
-        _id
-        applicantId
-        projectId
-        status
-      }
-      projects {
-        _id
-        title
-        department
-      }
-      numOfApplications
-      numOfProjects
+      headline
+      profilePhoto
     }
   }
 `;
@@ -1036,7 +1023,17 @@ const GET_OR_CREATE_CONVERSATION = gql`
         lastName
         profilePhoto
       }
+      lastMessage {
+        text
+        sender {
+          _id
+          firstName
+          lastName
+        }
+        timestamp
+      }
       unreadCount
+      updatedAt
     }
   }
 `;

@@ -1,14 +1,15 @@
 import React from 'react';
 
-export const Input = ({
+export const Input = React.forwardRef(({
   type = 'text',
   placeholder = '',
   className = '',
   error = false,
   ...props
-}) => {
+}, ref) => {
   return (
     <input
+      ref={ref}
       type={type}
       placeholder={placeholder}
       className={`
@@ -21,7 +22,9 @@ export const Input = ({
       {...props}
     />
   );
-};
+});
+
+Input.displayName = 'Input';
 
 export const SearchInput = ({ placeholder = 'Search...', className = '', ...props }) => {
   return (

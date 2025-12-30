@@ -19,7 +19,7 @@ export const SocketProvider = ({ children }) => {
     // Create socket connection with JWT authentication
     const initSocket = async () => {
       try {
-        // Get Clerk JWT token
+        // Get initial Clerk JWT token
         const token = await getToken();
 
         if (!token) {
@@ -27,14 +27,18 @@ export const SocketProvider = ({ children }) => {
           return;
         }
 
-        // Create socket connection to port 4001 (Socket.io server) with JWT auth
-        const newSocket = io('http://localhost:4001', {
+        // Create socket connection to port 4000 (unified server: GraphQL + Socket.IO) with JWT auth
+        // IMPORTANT: Use auth callback to refresh token on every reconnection attempt
+        const newSocket = io('http://localhost:4000', {
           transports: ['websocket', 'polling'],
           reconnection: true,
           reconnectionDelay: 1000,
           reconnectionAttempts: 5,
-          auth: {
-            token, // Pass JWT token for authentication
+          auth: async (cb) => {
+            // Refresh token on every connection/reconnection
+            const freshToken = await getToken();
+            console.log('🔑 [Socket] Refreshing JWT token for connection');
+            cb({ token: freshToken });
           },
         });
 
@@ -54,7 +58,7 @@ export const SocketProvider = ({ children }) => {
 
     // Connection event handlers
     newSocket.on('connect', () => {
-      console.log('Socket connected:', newSocket.id);
+      console.log('🟢 [Socket] CONNECTED - Socket ID:', newSocket.id);
       setIsConnected(true);
 
       // Emit user_connected event with user email
@@ -64,13 +68,25 @@ export const SocketProvider = ({ children }) => {
       });
     });
 
-    newSocket.on('disconnect', () => {
-      console.log('Socket disconnected');
+    newSocket.on('disconnect', (reason) => {
+      console.log('🔴 [Socket] DISCONNECTED - Reason:', reason);
       setIsConnected(false);
     });
 
     newSocket.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
+      console.error('❌ [Socket] Connection error:', error.message);
+    });
+
+    newSocket.on('reconnect', (attemptNumber) => {
+      console.log('🔄 [Socket] RECONNECTED after', attemptNumber, 'attempts');
+    });
+
+    newSocket.on('reconnect_attempt', (attemptNumber) => {
+      console.log('⏳ [Socket] Reconnection attempt', attemptNumber);
+    });
+
+    newSocket.on('connect_error', (error) => {
+      console.error('❌ Socket connection error:', error);
       setIsConnected(false);
     });
 

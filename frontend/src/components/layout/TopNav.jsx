@@ -8,6 +8,19 @@ import { toast } from 'sonner';
 import queries from '../../queries';
 
 const NavItem = ({ to, icon: Icon, label, active, badge }) => {
+  const [isAnimating, setIsAnimating] = React.useState(false);
+  const prevBadgeRef = React.useRef(badge);
+
+  React.useEffect(() => {
+    // Trigger animation when badge count increases
+    if (badge > 0 && badge > prevBadgeRef.current) {
+      setIsAnimating(true);
+      const timer = setTimeout(() => setIsAnimating(false), 600);
+      return () => clearTimeout(timer);
+    }
+    prevBadgeRef.current = badge;
+  }, [badge]);
+
   return (
     <Link
       to={to}
@@ -19,8 +32,14 @@ const NavItem = ({ to, icon: Icon, label, active, badge }) => {
           : 'text-gray-600 hover:text-gray-900'
       )}
     >
-      {badge && badge > 0 && (
-        <span className="absolute top-1 right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-semibold">
+      {badge > 0 && (
+        <span
+          className={cn(
+            "absolute top-1 right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-semibold",
+            "transition-all duration-200",
+            isAnimating && "animate-badge-pulse"
+          )}
+        >
           {badge > 9 ? '9+' : badge}
         </span>
       )}
@@ -152,7 +171,7 @@ export const TopNav = () => {
             <NavItem
               to="/messaging"
               icon={MessageSquare}
-              label="Messaging"
+              label="Messages"
               active={isActive('/messaging')}
               badge={totalUnread}
             />

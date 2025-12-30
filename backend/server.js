@@ -13,9 +13,11 @@ import { typeDefs } from "./graphQl/typeDefs.js";
 import { resolvers } from "./graphQl/resolvers.js";
 import dotenv from "dotenv";
 import { ObjectId } from "mongodb";
-import { users as usersCollection } from "./config/mongoCollections.js";
+import { users as usersCollection, conversations as conversationsCollection } from "./config/mongoCollections.js";
 import { ensureUserProvisioned } from "./helpers/userProvisioning.js";
 import { initializeDatabase } from "./helpers/initializeDatabase.js";
+import { Server as SocketServer } from "socket.io";
+import { addMessage, getMessagesByChannel } from "./messageOperations/index.js";
 
 dotenv.config();
 
@@ -103,12 +105,160 @@ async function authenticateUser(authHeader) {
 const app = express();
 const httpServer = createServer(app);
 
+// Socket.IO setup (same httpServer instance!)
+const io = new SocketServer(httpServer, {
+  cors: {
+    origin: "*",
+  },
+});
+const activeUsers = {}; // Store active users
+
 // Middleware
 app.use(cors());
 app.use(express.json());
 
 // Serve static files
 app.use('/static', express.static(path.join(__dirname, 'public')));
+
+// Socket.IO JWT Authentication Middleware
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+
+    if (!token) {
+      console.error("[Socket.IO Auth] No token provided");
+      return next(new Error('Authentication token required'));
+    }
+
+    // Verify JWT with Clerk
+    const payload = await verifyToken(token, {
+      secretKey: process.env.CLERK_SECRET_KEY
+    });
+
+    const userId = payload.sub;
+    const clerkUser = await clerkClient.users.getUser(userId);
+
+    // Get user from MongoDB
+    const users = await usersCollection();
+    const dbUser = await users.findOne({ clerkId: clerkUser.id });
+
+    if (!dbUser) {
+      console.error("[Socket.IO Auth] User not found in database:", clerkUser.id);
+      return next(new Error('User not found in database'));
+    }
+
+    // Attach user info to socket
+    socket.userId = dbUser._id.toString();
+    socket.userEmail = clerkUser.emailAddresses?.[0]?.emailAddress || clerkUser.email;
+    socket.clerkId = clerkUser.id;
+
+    console.log(`[Socket.IO Auth] User authenticated: ${socket.userEmail} (${socket.userId})`);
+    next();
+  } catch (error) {
+    console.error('[Socket.IO Auth] Authentication failed:', error.message);
+    next(new Error('Authentication failed'));
+  }
+});
+
+io.on("connection", async (socket) => {
+  console.log(`[Socket] ${socket.userEmail} connected`);
+
+  // Track as online
+  activeUsers[socket.userId] = socket.id;
+
+  // Broadcast online status
+  io.emit('user_online', { userId: socket.userId });
+
+  // Auto-join personal DM room
+  const userRoom = `dm:${socket.userId}`;
+  socket.join(userRoom);
+
+  // Auto-join all active conversation rooms
+  try {
+    const conversationsCol = await conversationsCollection();
+    const userConversations = await conversationsCol
+      .find({
+        'participantObjects.userId': socket.userId
+      })
+      .project({ _id: 1 })
+      .toArray();
+
+    userConversations.forEach(conv => {
+      const roomName = `conversation:${conv._id}`;
+      socket.join(roomName);
+    });
+
+    console.log(`[Socket] ${socket.userEmail} joined ${userConversations.length} conversation rooms`);
+  } catch (error) {
+    console.error('[Socket] Failed to join conversation rooms:', error);
+  }
+
+  // Handle user connection and channel subscription (legacy project chat)
+  socket.on("user_connected", (data) => {
+    console.log("User connected (legacy):", data);
+    socket.broadcast.emit("user_joined", { user: data });
+  });
+
+  // Handle joining a channel
+  socket.on("join_channel", async (channel) => {
+    console.log(`${socket.id} joined channel: ${channel}`);
+    try {
+      const messages = await getMessagesByChannel(channel);
+      socket.emit("previous_messages", messages);
+    } catch (e) {
+      console.log(e);
+    }
+    socket.join(channel);
+  });
+
+  // Handle chat message events
+  socket.on("chat_message", async (data) => {
+    console.log(
+      "Message received for channel:",
+      data.channel,
+      "Message:",
+      data
+    );
+
+    const messageDocument = {
+      channel: data.channel,
+      user: data.user,
+      message: data.message,
+      timestamp: new Date(),
+    };
+
+    await addMessage(messageDocument);
+
+    // Emit the message to all users in the specific channel
+    io.to(data.channel).emit("chat_message", data);
+  });
+
+  // DIRECT MESSAGING EVENTS
+
+  // Typing indicators
+  socket.on('typing_start', ({ conversationId }) => {
+    socket.to(`conversation:${conversationId}`).emit('user_typing', {
+      userId: socket.userId,
+      conversationId
+    });
+  });
+
+  socket.on('typing_stop', ({ conversationId }) => {
+    socket.to(`conversation:${conversationId}`).emit('user_stopped_typing', {
+      userId: socket.userId,
+      conversationId
+    });
+  });
+
+  // Handle user disconnection
+  socket.on("disconnect", (reason) => {
+    console.log(`[Socket] ${socket.userEmail} disconnected (${reason})`);
+    delete activeUsers[socket.userId];
+
+    // Broadcast offline status
+    io.emit('user_offline', { userId: socket.userId });
+  });
+});
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -345,10 +495,22 @@ const startServer = async () => {
   );
 
   httpServer.listen(4000, () => {
-    console.log(`🚀 GraphQL Server ready at: http://localhost:4000/graphql`);
+    console.log(`
+======================================================================
+🚀 UNIFIED SERVER STARTUP - GraphQL + Socket.IO
+======================================================================
+`);
+    console.log(`📡 GraphQL Server ready at: http://localhost:4000/graphql`);
+    console.log(`🔌 Socket.IO Server running on same server (port 4000)`);
     console.log(`📁 Static files served at: http://localhost:4000/static`);
     console.log(`📤 Upload endpoint at: http://localhost:4000/api/upload`);
+    console.log(`
+======================================================================
+`);
   });
 };
 
 startServer();
+
+// Export io instance for use in GraphQL resolvers
+export { io };

@@ -88,6 +88,7 @@ export default {
         'fade-up': 'fadeUp 0.2s ease-out',
         'slide-in': 'slideIn 0.15s ease-out',
         'scale-in': 'scaleIn 0.15s ease-out',
+        'badge-pulse': 'badgePulse 0.6s cubic-bezier(0.4, 0, 0.6, 1)',
       },
       keyframes: {
         fadeIn: {
@@ -105,6 +106,16 @@ export default {
         scaleIn: {
           '0%': { transform: 'scale(0.95)', opacity: '0' },
           '100%': { transform: 'scale(1)', opacity: '1' },
+        },
+        badgePulse: {
+          '0%, 100%': {
+            transform: 'scale(1)',
+            opacity: '1'
+          },
+          '50%': {
+            transform: 'scale(1.15)',
+            opacity: '0.9'
+          },
         },
       },
     },

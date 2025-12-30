@@ -4,8 +4,9 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js & node app.js",
+    "start": "node server.js",
     "seed": "node tasks/seed.js",
+    "create-dm-indexes": "node tasks/createDMIndexes.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "team-cool-kids",

@@ -28,7 +28,7 @@ import { createClient } from "redis";
 import * as helpers from "./helpers.js";
 
 //Socket.IO instance for real-time messaging
-import { io } from "../app.js";
+import { io } from "../server.js";
 
 //REDIS CLIENT SET UP
 dotenv.config();
@@ -4428,9 +4428,28 @@ export const resolvers = {
 
       // Socket.IO broadcast
       try {
+        const roomName = `conversation:${conversationId}`;
+        const socketsInRoom = await io.in(roomName).fetchSockets();
+        console.log(`[DM] Emitting message to room ${roomName}, sockets in room: ${socketsInRoom.length}`);
+        socketsInRoom.forEach(s => {
+          console.log(`[DM]   - Socket ${s.id} in room`);
+        });
+
+        // Populate sender object for real-time message
+        const messageWithSender = {
+          ...newMessage,
+          sender: {
+            _id: context.currentUser._id.toString(),
+            firstName: context.currentUser.firstName,
+            lastName: context.currentUser.lastName,
+            email: context.currentUser.email,
+            profilePhoto: context.currentUser.profilePhoto || null
+          }
+        };
+
         // Emit to conversation room (for active conversation view)
-        io.to(`conversation:${conversationId}`).emit('new_direct_message', {
-          message: newMessage,
+        io.to(roomName).emit('new_direct_message', {
+          message: messageWithSender,
           conversationId
         });
 
@@ -4516,6 +4535,26 @@ export const resolvers = {
         console.log(`Conversation caches invalidated after marking as read.`);
       } catch (error) {
         console.error('Failed to invalidate conversation caches:', error);
+      }
+
+      // Emit read receipt to conversation participants
+      try {
+        const roomName = `conversation:${args.conversationId}`;
+        io.to(roomName).emit('message_read', {
+          conversationId: args.conversationId,
+          userId: currentUserId,
+          readAt: now
+        });
+
+        // Also notify sender's other devices
+        io.to(`dm:${currentUserId}`).emit('conversation_read', {
+          conversationId: args.conversationId,
+          readAt: now
+        });
+
+        console.log(`[READ RECEIPT] User ${currentUserId} marked conversation ${args.conversationId} as read`);
+      } catch (error) {
+        console.error('[READ RECEIPT] Failed to emit Socket.IO event:', error);
       }
 
       // Return updated conversation
