@@ -1494,18 +1494,61 @@ export const resolvers = {
         filter.professors = input.professorId; // Array contains
       }
 
+      // My Projects filter (professor OR student)
+      if (input.myProjects && context.currentUser?._id) {
+        const userId = context.currentUser._id.toString();
+
+        // Create membership $or filter
+        const membershipOr = {
+          $or: [
+            { professors: userId },
+            { students: userId }
+          ]
+        };
+
+        // Merge into filter WITHOUT overwriting existing conditions
+        if (filter.$or || filter.$and) {
+          // Already have $or/$and, wrap everything
+          const existingFilter = { ...filter };
+          filter.$and = [existingFilter, membershipOr];
+          // Clear old top-level keys
+          Object.keys(filter).forEach(key => {
+            if (key !== '$and') delete filter[key];
+          });
+        } else {
+          // Simple case: just add membership OR to filter
+          Object.assign(filter, membershipOr);
+        }
+      }
+
       // 4. CURSOR FILTER (compound sort-aware)
+      // CRITICAL: Must handle existing $or from myProjects without overwriting
       if (input.after) {
         try {
-          const cursorFilter = decodeCursor(input.after);
-          // Merge $or condition with existing filters
-          if (Object.keys(filter).length > 0) {
+          const cursorFilter = decodeCursor(input.after); // Returns $or for pagination
+
+          if (filter.$and) {
+            // Already have $and (from myProjects), append cursor filter to array
+            filter.$and.push(cursorFilter);
+          } else if (filter.$or) {
+            // Have membership $or, need to wrap both in $and
+            const membershipOr = { $or: filter.$or };
+            delete filter.$or;
+            const otherFilters = { ...filter };
+            filter.$and = [otherFilters, membershipOr, cursorFilter];
+            // Clear old top-level keys
+            Object.keys(filter).forEach(key => {
+              if (key !== '$and') delete filter[key];
+            });
+          } else if (Object.keys(filter).length > 0) {
+            // Have other filters, wrap in $and
             filter.$and = [{ ...filter }, cursorFilter];
             // Remove merged properties from top level
             Object.keys(filter).forEach(key => {
               if (key !== '$and') delete filter[key];
             });
           } else {
+            // No filters, just use cursor filter
             Object.assign(filter, cursorFilter);
           }
         } catch (error) {

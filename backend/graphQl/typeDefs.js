@@ -845,6 +845,7 @@ export const typeDefs = `#graphql
             createdAfter: String               # ISO date (>= filter)
             createdBefore: String              # ISO date (<= filter)
             professorId: String                # For "My Projects" tab (future)
+            myProjects: Boolean                # Filter to user's projects (professor OR student)
         }
 
     # ProjectSummary

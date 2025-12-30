@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { PageContainer, PageHeader } from '../components/layout/PageContainer';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/Tabs';
 import { DiscoverTab } from '../components/projects/DiscoverTab';
+import { MyProjectsTab } from '../components/projects/MyProjectsTab';
 
 export const ProjectsHub = () => {
   const [activeTab, setActiveTab] = useState('discover');
@@ -16,7 +17,7 @@ export const ProjectsHub = () => {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-6">
           <TabsTrigger value="discover">Discover</TabsTrigger>
-          <TabsTrigger value="my-projects" disabled>
+          <TabsTrigger value="my-projects">
             My Projects
           </TabsTrigger>
           <TabsTrigger value="applied" disabled>
@@ -29,9 +30,7 @@ export const ProjectsHub = () => {
         </TabsContent>
 
         <TabsContent value="my-projects">
-          <div className="text-center py-12 text-muted-foreground">
-            <p>My Projects tab coming soon...</p>
-          </div>
+          <MyProjectsTab />
         </TabsContent>
 
         <TabsContent value="applied">
