@@ -6,8 +6,8 @@ import { Skeleton } from '../ui/Skeleton';
 import { InlineAlert } from '../ui/Alert';
 import { AppliedProjectCard } from './AppliedProjectCard';
 import { Button } from '../ui/Button';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/Select';
-import { FileText, ChevronDown } from 'lucide-react';
+import { Select } from '../ui/Select';
+import { FileText } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import queries from '../../queries';
 
@@ -101,17 +101,16 @@ export const AppliedTab = () => {
       <div className="lg:col-span-9">
         {/* Status Filter */}
         <div className="mb-6">
-          <Select value={statusFilter || 'ALL'} onValueChange={(val) => setStatusFilter(val === 'ALL' ? null : val)}>
-            <SelectTrigger className="w-64">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Applications</SelectItem>
-              <SelectItem value="PENDING">Pending</SelectItem>
-              <SelectItem value="APPROVED">Approved</SelectItem>
-              <SelectItem value="REJECTED">Rejected</SelectItem>
-              <SelectItem value="WAITLISTED">Waitlisted</SelectItem>
-            </SelectContent>
+          <Select
+            value={statusFilter || 'ALL'}
+            onChange={(e) => setStatusFilter(e.target.value === 'ALL' ? null : e.target.value)}
+            className="w-64"
+          >
+            <option value="ALL">All Applications</option>
+            <option value="PENDING">Pending</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="WAITLISTED">Waitlisted</option>
           </Select>
         </div>
 

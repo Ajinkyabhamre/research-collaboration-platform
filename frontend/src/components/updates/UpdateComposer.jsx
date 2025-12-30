@@ -3,7 +3,7 @@ import { useMutation } from '@apollo/client';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Textarea } from '../ui/Input';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/Select';
+import { Select } from '../ui/Select';
 import { Megaphone } from 'lucide-react';
 import { toast } from 'sonner';
 import { UPDATE_SUBJECTS } from '../../constants/updateSubjects';
@@ -64,17 +64,13 @@ export const UpdateComposer = ({ projectId }) => {
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Subject
           </label>
-          <Select value={subject} onValueChange={setSubject}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select update type..." />
-            </SelectTrigger>
-            <SelectContent>
-              {UPDATE_SUBJECTS.map(({ value, label }) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
+          <Select value={subject} onChange={(e) => setSubject(e.target.value)}>
+            <option value="">Select update type...</option>
+            {UPDATE_SUBJECTS.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </Select>
         </div>
 
