@@ -3,6 +3,7 @@
 //GraphQLError: Used for handling GraphQL-specific errors
 import { GraphQLError } from "graphql";
 import dotenv from "dotenv";
+import crypto from "crypto";
 
 //MongoDB: collections for users, projects, updates, and applications
 import {
@@ -71,6 +72,100 @@ const requireRole = (context, allowedRoles) => {
     });
   }
 };
+
+// Cursor pagination helper functions for projectsFeed
+
+/**
+ * Encode cursor from project document
+ * Cursor contains both createdDate and _id to match sort order
+ * @param {Object} project - MongoDB project document
+ * @returns {string} Base64 encoded cursor
+ */
+function encodeCursor(project) {
+  const cursor = {
+    createdDate: project.createdDate,
+    _id: project._id.toString()
+  };
+  return Buffer.from(JSON.stringify(cursor)).toString('base64');
+}
+
+/**
+ * Decode cursor to MongoDB filter object
+ * Handles compound sort order: { createdDate: -1, _id: -1 }
+ * Filter: (createdDate < cursor.createdDate) OR (createdDate == cursor.createdDate AND _id < cursor._id)
+ * @param {string} encodedCursor - Base64 encoded cursor string
+ * @returns {Object} MongoDB filter object with $or condition
+ */
+function decodeCursor(encodedCursor) {
+  try {
+    const cursor = JSON.parse(
+      Buffer.from(encodedCursor, 'base64').toString('utf-8')
+    );
+
+    if (!cursor.createdDate || !cursor._id) {
+      throw new Error('Invalid cursor structure');
+    }
+
+    // Return filter for "after this cursor" with descending sort
+    return {
+      $or: [
+        { createdDate: { $lt: cursor.createdDate } },
+        {
+          createdDate: cursor.createdDate,
+          _id: { $lt: new ObjectId(cursor._id) }
+        }
+      ]
+    };
+  } catch (error) {
+    throw new Error(`Invalid cursor: ${error.message}`);
+  }
+}
+
+/**
+ * Hash input object for Redis cache key
+ * @param {Object} input - ProjectsFeedInput object
+ * @returns {string} MD5 hash of input
+ */
+function hashInput(input) {
+  return crypto.createHash('md5')
+    .update(JSON.stringify(input))
+    .digest('hex');
+}
+
+/**
+ * Normalize User object for GraphQL response
+ * Ensures _id is always a string (required for Apollo Client cache)
+ * @param {Object|null} userDoc - MongoDB user document or null
+ * @returns {Object|null} Normalized user object with _id as string, or null
+ */
+function normalizeUser(userDoc) {
+  if (!userDoc) return null;
+
+  // Convert _id to string if it's an ObjectId
+  if (userDoc._id) {
+    userDoc._id = userDoc._id.toString();
+  }
+
+  return userDoc;
+}
+
+/**
+ * Create a fallback User object for deleted/missing users
+ * Uses the stored ID to prevent Apollo cache errors
+ * @param {string} userId - The stored user ID (as string)
+ * @returns {Object} Placeholder user object with valid _id
+ */
+function createUserFallback(userId) {
+  return {
+    _id: userId, // Use actual stored ID, not "unknown"
+    firstName: "Unknown",
+    lastName: "User",
+    email: "unknown@example.com",
+    role: "STUDENT",
+    department: "COMPUTER_SCIENCE",
+    bio: "This user no longer exists."
+  };
+}
 
 //RESOLVERS
 export const resolvers = {
@@ -1348,6 +1443,220 @@ export const resolvers = {
       return projectsByTitle;
     },
 
+    //QUERY: projectsFeed(input: ProjectsFeedInput!): ProjectsFeedResult!
+    //Purpose: Paginated projects feed with filtering and cursor pagination
+    //Cache: 600s (10 min) with hash-based key
+
+    projectsFeed: async (_, { input }) => {
+      const projects = await projectCollection();
+
+      // 1. VALIDATE INPUT
+      const limit = Math.min(input.first || 20, 50); // Max 50 per page
+
+      // 2. CHECK CACHE
+      const cacheKey = `projectsFeed:${hashInput(input)}`;
+      const cachedFeed = await redisClient.get(cacheKey);
+
+      if (cachedFeed) {
+        console.log('Returning projectsFeed from cache.');
+        return JSON.parse(cachedFeed);
+      }
+
+      // 3. BUILD BASE FILTER
+      const filter = {};
+
+      // Search filter (case-insensitive title search)
+      if (input.searchTerm?.trim()) {
+        filter.title = {
+          $regex: input.searchTerm.trim(),
+          $options: 'i'
+        };
+      }
+
+      // Department filter (multi-select)
+      if (input.departments?.length > 0) {
+        filter.department = { $in: input.departments };
+      }
+
+      // Date range filters (createdDate is ISO string)
+      if (input.createdAfter || input.createdBefore) {
+        filter.createdDate = {};
+        if (input.createdAfter) {
+          filter.createdDate.$gte = input.createdAfter;
+        }
+        if (input.createdBefore) {
+          filter.createdDate.$lte = input.createdBefore;
+        }
+      }
+
+      // Professor filter (for "My Projects" tab - future)
+      if (input.professorId) {
+        filter.professors = input.professorId; // Array contains
+      }
+
+      // 4. CURSOR FILTER (compound sort-aware)
+      if (input.after) {
+        try {
+          const cursorFilter = decodeCursor(input.after);
+          // Merge $or condition with existing filters
+          if (Object.keys(filter).length > 0) {
+            filter.$and = [{ ...filter }, cursorFilter];
+            // Remove merged properties from top level
+            Object.keys(filter).forEach(key => {
+              if (key !== '$and') delete filter[key];
+            });
+          } else {
+            Object.assign(filter, cursorFilter);
+          }
+        } catch (error) {
+          throw new GraphQLError('Invalid cursor', {
+            extensions: { code: 'BAD_REQUEST' }
+          });
+        }
+      }
+
+      // 5. AGGREGATION PIPELINE
+      const pipeline = [
+        // Match filter
+        { $match: filter },
+
+        // Sort (MUST match cursor logic: descending createdDate, then _id)
+        { $sort: { createdDate: -1, _id: -1 } },
+
+        // Limit (fetch one extra to detect hasNextPage)
+        { $limit: limit + 1 },
+
+        // Compute fields
+        {
+          $addFields: {
+            // Description preview (simple substring, no HTML stripping)
+            descriptionPreview: {
+              $cond: {
+                if: { $gt: [{ $strLenCP: { $ifNull: ['$description', ''] } }, 0] },
+                then: { $substrCP: ['$description', 0, 200] },
+                else: ''
+              }
+            },
+
+            // Count array lengths
+            professorCount: { $size: { $ifNull: ['$professors', []] } },
+            studentCount: { $size: { $ifNull: ['$students', []] } },
+
+            // Check if portfolio exists
+            hasPortfolio: {
+              $or: [
+                { $gt: [{ $strLenCP: { $ifNull: ['$githubUrl', ''] } }, 0] },
+                { $gt: [{ $strLenCP: { $ifNull: ['$liveUrl', ''] } }, 0] },
+                { $gt: [{ $strLenCP: { $ifNull: ['$demoVideoUrl', ''] } }, 0] }
+              ]
+            }
+          }
+        },
+
+        // Lookup lead professor (first in professors array)
+        {
+          $lookup: {
+            from: 'users',
+            let: { firstProfId: { $arrayElemAt: ['$professors', 0] } },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $eq: [
+                      '$_id',
+                      {
+                        $convert: {
+                          input: '$$firstProfId',
+                          to: 'objectId',
+                          onError: null,
+                          onNull: null
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                $project: {
+                  _id: 1,
+                  firstName: 1,
+                  lastName: 1,
+                  department: 1
+                }
+              }
+            ],
+            as: 'leadProfessorArray'
+          }
+        },
+
+        // Extract lead professor from array
+        {
+          $addFields: {
+            leadProfessor: { $arrayElemAt: ['$leadProfessorArray', 0] }
+          }
+        },
+
+        // Remove heavy fields (don't send to client)
+        {
+          $project: {
+            leadProfessorArray: 0,
+            professors: 0,
+            students: 0,
+            applications: 0,
+            updates: 0,
+            description: 0 // Send preview only
+          }
+        }
+      ];
+
+      // 6. EXECUTE QUERY
+      const results = await projects.aggregate(pipeline).toArray();
+
+      // 7. PAGINATION METADATA
+      const hasNextPage = results.length > limit;
+      const projectsPage = hasNextPage ? results.slice(0, limit) : results;
+
+      // 8. BUILD EDGES
+      const edges = projectsPage.map(project => ({
+        cursor: encodeCursor(project),
+        node: {
+          _id: project._id.toString(),
+          title: project.title,
+          descriptionPreview: project.descriptionPreview,
+          createdDate: project.createdDate,
+          department: project.department,
+          professorCount: project.professorCount,
+          studentCount: project.studentCount,
+          leadProfessor: project.leadProfessor ? {
+            _id: project.leadProfessor._id.toString(),
+            firstName: project.leadProfessor.firstName,
+            lastName: project.leadProfessor.lastName,
+            department: project.leadProfessor.department
+          } : null,
+          hasPortfolio: project.hasPortfolio
+        }
+      }));
+
+      // 9. BUILD RESULT
+      const result = {
+        edges,
+        pageInfo: {
+          hasNextPage,
+          endCursor: edges.length > 0 ? edges[edges.length - 1].cursor : null
+        }
+      };
+
+      // 10. CACHE RESULT (600s = 10 minutes)
+      await redisClient.set(cacheKey, JSON.stringify(result), {
+        EX: 600
+      });
+
+      console.log('ProjectsFeed fetched from database and cached.');
+
+      // 11. RETURN
+      return result;
+    },
+
     //QUERY: searchUserByName(searchTerm: String!): [User]
     //Purpose: Search users by name, case-insensitive
     //Cache: Cached by search term in Redis for one hour
@@ -1539,7 +1848,9 @@ export const resolvers = {
           role: "PROFESSOR",
         })
         .toArray();
-      return projectProfessors || [];
+
+      // Normalize all user documents to ensure _id is a string
+      return projectProfessors.map(normalizeUser);
     },
 
     // COMPUTED VALUE: project: students
@@ -1555,7 +1866,9 @@ export const resolvers = {
           role: "STUDENT",
         })
         .toArray();
-      return projectStudents || [];
+
+      // Normalize all user documents to ensure _id is a string
+      return projectStudents.map(normalizeUser);
     },
   },
 
@@ -1574,17 +1887,12 @@ export const resolvers = {
         console.warn(
           `User not found for posterUserId: ${parentValue.posterUserId}`
         );
-        return {
-          _id: "unknown",
-          firstName: "Unknown",
-          lastName: "User",
-          email: "unknown@example.com",
-          role: "STUDENT",
-          department: "COMPUTER_SCIENCE",
-          bio: "User not found.",
-        };
+        // Use actual stored ID for fallback to prevent Apollo cache errors
+        return createUserFallback(parentValue.posterUserId);
       }
-      return posterUser;
+
+      // Normalize user object to ensure _id is a string
+      return normalizeUser(posterUser);
     },
 
     //COMPUTED VALUE: updates: project
@@ -1647,17 +1955,12 @@ export const resolvers = {
         console.warn(
           `Applicant not found for applicantId: ${parentValue.applicantId}`
         );
-        return {
-          _id: "unknown",
-          firstName: "Unknown",
-          lastName: "User",
-          email: "unknown@example.com",
-          role: "STUDENT",
-          department: "COMPUTER_SCIENCE",
-          bio: "User not found.",
-        };
+        // Use actual stored ID for fallback to prevent Apollo cache errors
+        return createUserFallback(parentValue.applicantId);
       }
-      return applicant;
+
+      // Normalize user object to ensure _id is a string
+      return normalizeUser(applicant);
     },
 
     //COMPUTED VALUE: application: project
@@ -1720,17 +2023,12 @@ export const resolvers = {
         console.warn(
           `Commenter not found for commenterId: ${parentValue.commenterId}`
         );
-        return {
-          _id: "unknown",
-          firstName: "Unknown",
-          lastName: "User",
-          email: "unknown@example.com",
-          role: "STUDENT",
-          department: "COMPUTER_SCIENCE",
-          bio: "User not found.",
-        };
+        // Use actual stored ID for fallback to prevent Apollo cache errors
+        return createUserFallback(parentValue.commenterId);
       }
-      return commenter;
+
+      // Normalize user object to ensure _id is a string
+      return normalizeUser(commenter);
     },
   },
 
@@ -1747,17 +2045,12 @@ export const resolvers = {
 
       if (!author) {
         console.warn(`Author not found for userId: ${parentValue.userId}`);
-        return {
-          _id: "unknown",
-          firstName: "Unknown",
-          lastName: "User",
-          email: "unknown@example.com",
-          role: "STUDENT",
-          department: "COMPUTER_SCIENCE",
-          bio: "User not found.",
-        };
+        // Use actual stored ID for fallback to prevent Apollo cache errors
+        return createUserFallback(parentValue.userId);
       }
-      return author;
+
+      // Normalize user object to ensure _id is a string
+      return normalizeUser(author);
     },
 
     //FIELD: viewerHasLiked
@@ -1788,17 +2081,12 @@ export const resolvers = {
 
       if (!commenter) {
         console.warn(`Commenter not found for userId: ${parentValue.userId}`);
-        return {
-          _id: "unknown",
-          firstName: "Unknown",
-          lastName: "User",
-          email: "unknown@example.com",
-          role: "STUDENT",
-          department: "COMPUTER_SCIENCE",
-          bio: "User not found.",
-        };
+        // Use actual stored ID for fallback to prevent Apollo cache errors
+        return createUserFallback(parentValue.userId);
       }
-      return commenter;
+
+      // Normalize user object to ensure _id is a string
+      return normalizeUser(commenter);
     },
   },
 
@@ -1811,7 +2099,9 @@ export const resolvers = {
       const users = await userCollection();
       const participantIds = parent.participants.map(id => new ObjectId(id));
       const userObjects = await users.find({ _id: { $in: participantIds } }).toArray();
-      return userObjects;
+
+      // Normalize all user documents to ensure _id is a string
+      return userObjects.map(normalizeUser);
     },
 
     //FIELD: lastMessage
@@ -1826,21 +2116,15 @@ export const resolvers = {
         console.warn(`Sender not found for lastMessage in conversation: ${parent._id}`);
         return {
           text: parent.lastMessage.text,
-          sender: {
-            _id: "unknown",
-            firstName: "Unknown",
-            lastName: "User",
-            email: "unknown@example.com",
-            role: "STUDENT",
-            department: "COMPUTER_SCIENCE",
-          },
+          // Use actual stored ID for fallback to prevent Apollo cache errors
+          sender: createUserFallback(parent.lastMessage.senderId),
           timestamp: parent.lastMessage.timestamp
         };
       }
 
       return {
         text: parent.lastMessage.text,
-        sender,
+        sender: normalizeUser(sender),
         timestamp: parent.lastMessage.timestamp
       };
     },
@@ -1867,17 +2151,12 @@ export const resolvers = {
 
       if (!sender) {
         console.warn(`Sender not found for message: ${parent._id}`);
-        return {
-          _id: "unknown",
-          firstName: "Unknown",
-          lastName: "User",
-          email: "unknown@example.com",
-          role: "STUDENT",
-          department: "COMPUTER_SCIENCE",
-        };
+        // Use actual stored ID for fallback to prevent Apollo cache errors
+        return createUserFallback(parent.senderId);
       }
 
-      return sender;
+      // Normalize user object to ensure _id is a string
+      return normalizeUser(sender);
     },
 
     //FIELD: isRead

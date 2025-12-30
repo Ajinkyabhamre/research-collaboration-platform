@@ -10,6 +10,7 @@ import { useMessageNotifications } from './hooks/useMessageNotifications.jsx';
 import { Landing } from './pages/Landing';
 import { Home } from './pages/Home';
 import { Projects } from './pages/Projects';
+import { ProjectsHub } from './pages/ProjectsHub';
 import { ProjectDetails } from './pages/ProjectDetails';
 import { ProjectRequests } from './pages/ProjectRequests';
 import { Messaging } from './pages/Messaging';
@@ -106,6 +107,17 @@ const App = () => {
             <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
               <AppShell>
                 <Projects />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/projects-new"
+          element={
+            <ProtectedRoute allowedRoles={['PROFESSOR', 'ADMIN', 'STUDENT']}>
+              <AppShell>
+                <ProjectsHub />
               </AppShell>
             </ProtectedRoute>
           }

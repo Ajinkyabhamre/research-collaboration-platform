@@ -72,6 +72,38 @@ const GET_PROJECTS = gql`
     }
   }
 `;
+
+// PROJECTS FEED V2 - Paginated feed with cursor pagination
+const PROJECTS_FEED = gql`
+  query ProjectsFeed($input: ProjectsFeedInput!) {
+    projectsFeed(input: $input) {
+      edges {
+        cursor
+        node {
+          _id
+          title
+          descriptionPreview
+          createdDate
+          department
+          professorCount
+          studentCount
+          leadProfessor {
+            _id
+            firstName
+            lastName
+            department
+          }
+          hasPortfolio
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
+
 const GET_APPLICATIONS = gql`
   query Applications {
     applications {
@@ -216,6 +248,7 @@ const GET_PROJECT_BY_ID = gql`
         status
       }
       professors {
+        _id
         firstName
         lastName
         email
@@ -223,6 +256,7 @@ const GET_PROJECT_BY_ID = gql`
         role
       }
       students {
+        _id
         firstName
         lastName
         email
@@ -1067,6 +1101,7 @@ const MARK_CONVERSATION_AS_READ = gql`
 let exported = {
   ME,
   GET_PROJECTS,
+  PROJECTS_FEED,
   GET_APPLICATIONS,
   GET_UPDATES,
   GET_USER_BY_ID,

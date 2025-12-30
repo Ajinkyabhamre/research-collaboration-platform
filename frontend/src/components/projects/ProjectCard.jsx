@@ -26,22 +26,36 @@ const getYearFromDate = (dateString) => {
 };
 
 export const ProjectCard = ({ project }) => {
-  const { _id, title, description, department, professors, students, numOfApplications, createdDate } = project;
+  const { _id, title, department, createdDate } = project;
+
+  // Support both old Project shape and new ProjectSummary shape
+  // Old shape: { professors: [...], students: [...], numOfApplications, description }
+  // New shape: { leadProfessor: {...}, professorCount, studentCount, descriptionPreview }
 
   // Get first professor for display
-  const mainProfessor = professors && professors.length > 0 ? professors[0] : null;
+  const mainProfessor = project.leadProfessor || (project.professors && project.professors.length > 0 ? project.professors[0] : null);
   const professorName = mainProfessor
     ? `${mainProfessor.firstName} ${mainProfessor.lastName}`
     : 'No Professor Assigned';
 
-  // Calculate available positions
-  const currentStudents = students ? students.length : 0;
+  // Get student count
+  const currentStudents = project.studentCount !== undefined
+    ? project.studentCount
+    : (project.students ? project.students.length : 0);
+
+  // Get application count
+  const applicationCount = project.numOfApplications !== undefined
+    ? project.numOfApplications
+    : 0;
+
   const year = getYearFromDate(createdDate);
 
-  // Strip HTML tags for preview (safely)
-  const plainDescription = description
-    ? description.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').substring(0, 150) + '...'
-    : 'No description available';
+  // Use descriptionPreview if available (new shape), otherwise strip HTML from description (old shape)
+  const plainDescription = project.descriptionPreview
+    ? project.descriptionPreview
+    : (project.description
+      ? project.description.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').substring(0, 150) + '...'
+      : 'No description available');
 
   return (
     <motion.div
@@ -77,7 +91,7 @@ export const ProjectCard = ({ project }) => {
               </div>
               <div className="flex items-center gap-1">
                 <FileText className="w-4 h-4" />
-                <span>{numOfApplications} applicants</span>
+                <span>{applicationCount} applicants</span>
               </div>
               <div className="flex items-center gap-1">
                 <Calendar className="w-4 h-4" />

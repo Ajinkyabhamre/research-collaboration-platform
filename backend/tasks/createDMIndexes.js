@@ -19,14 +19,16 @@ const createDMIndexes = async () => {
 
     // Index 1: participants lookup (for finding existing conversations)
     // Used by: getOrCreateConversation, sendDirectMessage
+    // UNIQUE to prevent duplicate conversations between same participants
     await db.collection('conversations').createIndex(
       { participants: 1 },
       {
-        name: 'participants_lookup',
+        name: 'participants_unique',
+        unique: true,
         background: true
       }
     );
-    console.log('  ✅ participants_lookup - Optimizes conversation lookup by participant pair');
+    console.log('  ✅ participants_unique - Optimizes conversation lookup and prevents duplicates');
 
     // Index 2: user conversations sorted by update time
     // Used by: conversations query (pagination + filtering)

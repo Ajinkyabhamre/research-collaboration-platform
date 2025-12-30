@@ -125,10 +125,17 @@ export const typeDefs = `#graphql
             #searchProjectByTitle(searchTerm: String!): [Project]
             # Purpose: Returns an array of projects whose titles contain the specified search term (case-insensitive).
             # Caching: One-hour expiration; completed in resolvers.js.
-            
+
                 searchProjectByTitle(searchTerm: String!): [Project]
-            
-            
+
+            # projectsFeed(input: ProjectsFeedInput!): ProjectsFeedResult!
+            # Purpose: Returns paginated projects feed with filtering and cursor pagination
+            # Caching: 600s (10 min) with hash-based key
+            # Replaces: projects, projectsByDepartment, projectsByCreatedYear, searchProjectByTitle (legacy queries deprecated)
+
+                projectsFeed(input: ProjectsFeedInput!): ProjectsFeedResult!
+
+
             # Purpose: Returns an array of users whose names contain the specified search term (case-insensitive).
             # Caching: One-hour expiration; completed in resolvers.js.
             
@@ -823,4 +830,65 @@ export const typeDefs = `#graphql
         ): Conversation!
 
         }
+
+    #PROJECTS FEED V2 TYPES
+    #Purpose: Paginated, efficient project feed with minimal over-fetching
+
+    # ProjectsFeedInput
+    # Purpose: Input parameters for projectsFeed query with pagination and filters
+
+        input ProjectsFeedInput {
+            first: Int = 20                    # Default 20, max 50 per page
+            after: String                      # Cursor (base64 JSON: {createdDate, _id})
+            searchTerm: String                 # Search in title (case-insensitive)
+            departments: [Department!]         # Multi-select departments
+            createdAfter: String               # ISO date (>= filter)
+            createdBefore: String              # ISO date (<= filter)
+            professorId: String                # For "My Projects" tab (future)
+        }
+
+    # ProjectSummary
+    # Purpose: Lightweight project type for list views (no field resolvers)
+    # All fields computed in aggregation pipeline
+
+        type ProjectSummary {
+            _id: String!
+            title: String!
+            descriptionPreview: String         # First 200 chars (no HTML stripping in MVP)
+            createdDate: String!
+            department: Department!
+            professorCount: Int!               # Computed via $size
+            studentCount: Int!                 # Computed via $size
+            leadProfessor: UserSummary         # First professor via $lookup
+            hasPortfolio: Boolean!             # True if any URL exists
+        }
+
+    # UserSummary
+    # Purpose: Minimal user info for embedded display
+
+        type UserSummary {
+            _id: String!
+            firstName: String!
+            lastName: String!
+            department: Department
+        }
+
+    # ProjectsFeedResult
+    # Purpose: Relay-style cursor pagination result
+
+        type ProjectsFeedResult {
+            edges: [ProjectEdge!]!
+            pageInfo: PageInfo!
+        }
+
+        type ProjectEdge {
+            cursor: String!                    # Base64({createdDate, _id})
+            node: ProjectSummary!
+        }
+
+        type PageInfo {
+            hasNextPage: Boolean!
+            endCursor: String                  # Last cursor, null if empty
+        }
+
 `;
