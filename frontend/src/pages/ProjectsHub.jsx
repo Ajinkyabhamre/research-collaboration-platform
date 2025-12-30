@@ -3,6 +3,7 @@ import { PageContainer, PageHeader } from '../components/layout/PageContainer';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/Tabs';
 import { DiscoverTab } from '../components/projects/DiscoverTab';
 import { MyProjectsTab } from '../components/projects/MyProjectsTab';
+import { AppliedTab } from '../components/projects/AppliedTab';
 
 export const ProjectsHub = () => {
   const [activeTab, setActiveTab] = useState('discover');
@@ -20,7 +21,7 @@ export const ProjectsHub = () => {
           <TabsTrigger value="my-projects">
             My Projects
           </TabsTrigger>
-          <TabsTrigger value="applied" disabled>
+          <TabsTrigger value="applied">
             Applied
           </TabsTrigger>
         </TabsList>
@@ -34,9 +35,7 @@ export const ProjectsHub = () => {
         </TabsContent>
 
         <TabsContent value="applied">
-          <div className="text-center py-12 text-muted-foreground">
-            <p>Applied tab coming soon...</p>
-          </div>
+          <AppliedTab />
         </TabsContent>
       </Tabs>
     </PageContainer>

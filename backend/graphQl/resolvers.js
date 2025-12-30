@@ -1700,6 +1700,252 @@ export const resolvers = {
       return result;
     },
 
+    //QUERY: appliedProjectsFeed(input: AppliedProjectsFeedInput!): AppliedProjectsFeedResult!
+    //Purpose: Show projects user has applied to with application status
+    //Auth: Requires authentication (currentUser only)
+    //Cache: 300s (5 min) with hash-based key (shorter TTL due to status changes)
+
+    appliedProjectsFeed: async (_, { input }, context) => {
+      // ========== AUTHORIZATION ==========
+      resolvers.requireAuth(context);
+
+      const userId = context.currentUser._id.toString();
+      const applications = await applicationCollection();
+      const limit = Math.min(input.first || 20, 50);
+
+      // ========== CHECK CACHE ==========
+      const cacheKey = `appliedProjectsFeed:${userId}:${hashInput(input)}`;
+      const cachedFeed = await redisClient.get(cacheKey);
+
+      if (cachedFeed) {
+        console.log('Returning appliedProjectsFeed from cache.');
+        return JSON.parse(cachedFeed);
+      }
+
+      // ========== BUILD BASE FILTER FOR APPLICATIONS ==========
+      const appFilter = {
+        applicantId: userId  // Only current user's applications
+      };
+
+      // Optional status filter
+      if (input.statusFilter) {
+        appFilter.status = input.statusFilter;
+      }
+
+      // ========== CURSOR FILTER ==========
+      if (input.after) {
+        try {
+          const cursor = JSON.parse(
+            Buffer.from(input.after, 'base64').toString('utf-8')
+          );
+
+          if (!cursor.applicationDate || !cursor._id) {
+            throw new Error('Invalid cursor structure');
+          }
+
+          // Filter for "after this cursor" with descending sort
+          // Sort: { applicationDate: -1, _id: -1 }
+          appFilter.$or = [
+            { applicationDate: { $lt: cursor.applicationDate } },
+            {
+              applicationDate: cursor.applicationDate,
+              _id: { $lt: new ObjectId(cursor._id) }
+            }
+          ];
+        } catch (error) {
+          throw new GraphQLError('Invalid cursor', {
+            extensions: { code: 'BAD_REQUEST' }
+          });
+        }
+      }
+
+      // ========== AGGREGATION PIPELINE ==========
+      const pipeline = [
+        // Stage 1: Match user's applications with filters
+        { $match: appFilter },
+
+        // Stage 2: Sort by applicationDate descending (newest first)
+        { $sort: { applicationDate: -1, _id: -1 } },
+
+        // Stage 3: Limit (fetch one extra to detect hasNextPage)
+        { $limit: limit + 1 },
+
+        // Stage 4: Lookup project details
+        {
+          $lookup: {
+            from: 'projects',
+            let: { projectId: { $toObjectId: '$projectId' } },
+            pipeline: [
+              {
+                $match: {
+                  $expr: { $eq: ['$_id', '$$projectId'] }
+                }
+              },
+              // Compute fields for ProjectSummary
+              {
+                $addFields: {
+                  descriptionPreview: {
+                    $cond: {
+                      if: { $gt: [{ $strLenCP: { $ifNull: ['$description', ''] } }, 0] },
+                      then: { $substrCP: ['$description', 0, 200] },
+                      else: ''
+                    }
+                  },
+                  professorCount: { $size: { $ifNull: ['$professors', []] } },
+                  studentCount: { $size: { $ifNull: ['$students', []] } },
+                  hasPortfolio: {
+                    $or: [
+                      { $gt: [{ $strLenCP: { $ifNull: ['$githubUrl', ''] } }, 0] },
+                      { $gt: [{ $strLenCP: { $ifNull: ['$liveUrl', ''] } }, 0] },
+                      { $gt: [{ $strLenCP: { $ifNull: ['$demoVideoUrl', ''] } }, 0] }
+                    ]
+                  }
+                }
+              },
+              // Lookup lead professor (first professor in array)
+              {
+                $lookup: {
+                  from: 'users',
+                  let: { firstProfId: { $arrayElemAt: ['$professors', 0] } },
+                  pipeline: [
+                    {
+                      $match: {
+                        $expr: {
+                          $eq: [
+                            '$_id',
+                            {
+                              $convert: {
+                                input: '$$firstProfId',
+                                to: 'objectId',
+                                onError: null,
+                                onNull: null
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      $project: {
+                        _id: 1,
+                        firstName: 1,
+                        lastName: 1,
+                        department: 1
+                      }
+                    }
+                  ],
+                  as: 'leadProfessorArray'
+                }
+              },
+              {
+                $addFields: {
+                  leadProfessor: { $arrayElemAt: ['$leadProfessorArray', 0] }
+                }
+              },
+              // Project only needed fields
+              {
+                $project: {
+                  _id: 1,
+                  title: 1,
+                  descriptionPreview: 1,
+                  createdDate: 1,
+                  department: 1,
+                  professorCount: 1,
+                  studentCount: 1,
+                  leadProfessor: 1,
+                  hasPortfolio: 1
+                }
+              }
+            ],
+            as: 'projectData'
+          }
+        },
+
+        // Stage 5: Extract project from array
+        {
+          $addFields: {
+            project: { $arrayElemAt: ['$projectData', 0] }
+          }
+        },
+
+        // Stage 6: CRITICAL - Filter out applications where project was deleted
+        {
+          $match: {
+            project: { $ne: null }
+          }
+        },
+
+        // Stage 7: Remove intermediate fields
+        {
+          $project: {
+            projectData: 0
+          }
+        }
+      ];
+
+      // ========== EXECUTE QUERY ==========
+      const results = await applications.aggregate(pipeline).toArray();
+
+      // ========== PAGINATION METADATA ==========
+      const hasNextPage = results.length > limit;
+      const applicationsPage = hasNextPage ? results.slice(0, limit) : results;
+
+      // ========== BUILD EDGES ==========
+      const edges = applicationsPage.map(app => {
+        // Cursor based on applicationDate + _id (matching sort order)
+        const cursor = {
+          applicationDate: app.applicationDate,
+          _id: app._id.toString()
+        };
+        const encodedCursor = Buffer.from(JSON.stringify(cursor)).toString('base64');
+
+        return {
+          cursor: encodedCursor,
+          node: {
+            // Project fields
+            _id: app.project._id.toString(),
+            title: app.project.title,
+            descriptionPreview: app.project.descriptionPreview,
+            createdDate: app.project.createdDate,
+            department: app.project.department,
+            professorCount: app.project.professorCount,
+            studentCount: app.project.studentCount,
+            leadProfessor: app.project.leadProfessor ? {
+              _id: app.project.leadProfessor._id.toString(),
+              firstName: app.project.leadProfessor.firstName,
+              lastName: app.project.leadProfessor.lastName,
+              department: app.project.leadProfessor.department
+            } : null,
+            hasPortfolio: app.project.hasPortfolio,
+
+            // Application fields
+            application: {
+              _id: app._id.toString(),
+              status: app.status,
+              applicationDate: app.applicationDate,
+              lastUpdatedDate: app.lastUpdatedDate
+            }
+          }
+        };
+      });
+
+      // ========== BUILD RESULT ==========
+      const result = {
+        edges,
+        pageInfo: {
+          hasNextPage,
+          endCursor: edges.length > 0 ? edges[edges.length - 1].cursor : null
+        }
+      };
+
+      // ========== CACHE RESULT (5 min TTL - shorter due to status changes) ==========
+      await redisClient.set(cacheKey, JSON.stringify(result), { EX: 300 });
+
+      console.log('AppliedProjectsFeed fetched from database and cached.');
+
+      return result;
+    },
+
     //QUERY: searchUserByName(searchTerm: String!): [User]
     //Purpose: Search users by name, case-insensitive
     //Cache: Cached by search term in Redis for one hour

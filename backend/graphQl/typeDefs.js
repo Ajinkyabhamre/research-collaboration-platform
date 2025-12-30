@@ -135,6 +135,13 @@ export const typeDefs = `#graphql
 
                 projectsFeed(input: ProjectsFeedInput!): ProjectsFeedResult!
 
+            # appliedProjectsFeed(input: AppliedProjectsFeedInput!): AppliedProjectsFeedResult!
+            # Purpose: Returns projects user has applied to with application status
+            # Auth: Requires authentication (current user only)
+            # Caching: 300s (5 min) with hash-based key (shorter TTL due to status changes)
+
+                appliedProjectsFeed(input: AppliedProjectsFeedInput!): AppliedProjectsFeedResult!
+
 
             # Purpose: Returns an array of users whose names contain the specified search term (case-insensitive).
             # Caching: One-hour expiration; completed in resolvers.js.
@@ -890,6 +897,45 @@ export const typeDefs = `#graphql
         type PageInfo {
             hasNextPage: Boolean!
             endCursor: String                  # Last cursor, null if empty
+        }
+
+    # ========== APPLIED PROJECTS FEED ==========
+    # Purpose: Show projects user has applied to with application status
+
+        type AppliedProjectSummary {
+            _id: String!
+            title: String!
+            descriptionPreview: String
+            createdDate: String!
+            department: Department!
+            professorCount: Int!
+            studentCount: Int!
+            leadProfessor: UserSummary
+            hasPortfolio: Boolean!
+            application: ApplicationSummary!   # User's application to this project
+        }
+
+        type ApplicationSummary {
+            _id: String!
+            status: ApplicationStatus!
+            applicationDate: String!
+            lastUpdatedDate: String!
+        }
+
+        input AppliedProjectsFeedInput {
+            first: Int = 20
+            after: String
+            statusFilter: ApplicationStatus    # Optional: filter by status
+        }
+
+        type AppliedProjectsFeedResult {
+            edges: [AppliedProjectEdge!]!
+            pageInfo: PageInfo!
+        }
+
+        type AppliedProjectEdge {
+            cursor: String!
+            node: AppliedProjectSummary!
         }
 
 `;

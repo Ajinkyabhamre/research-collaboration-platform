@@ -104,6 +104,42 @@ const PROJECTS_FEED = gql`
   }
 `;
 
+const APPLIED_PROJECTS_FEED = gql`
+  query AppliedProjectsFeed($input: AppliedProjectsFeedInput!) {
+    appliedProjectsFeed(input: $input) {
+      edges {
+        cursor
+        node {
+          _id
+          title
+          descriptionPreview
+          createdDate
+          department
+          professorCount
+          studentCount
+          leadProfessor {
+            _id
+            firstName
+            lastName
+            department
+          }
+          hasPortfolio
+          application {
+            _id
+            status
+            applicationDate
+            lastUpdatedDate
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
+
 const GET_APPLICATIONS = gql`
   query Applications {
     applications {
@@ -1102,6 +1138,7 @@ let exported = {
   ME,
   GET_PROJECTS,
   PROJECTS_FEED,
+  APPLIED_PROJECTS_FEED,
   GET_APPLICATIONS,
   GET_UPDATES,
   GET_USER_BY_ID,
