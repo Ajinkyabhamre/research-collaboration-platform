@@ -117,6 +117,7 @@ backend/public/uploads/
 # Project-Specific
 # ============================================
 
-# Keep CLAUDE.md files tracked (critical for context)
-# Keep README.md files tracked
-# Keep all documentation in docs/ tracked
+# --- Local AI context files (do not commit) ---
+CLAUDE.md
+**/CLAUDE.md
+
