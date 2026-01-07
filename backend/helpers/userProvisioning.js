@@ -55,7 +55,8 @@ export async function ensureUserProvisioned({ clerkUser, dbUsersCollection }) {
         $setOnInsert: {
           // Only set these fields on initial insert
           createdAt: now,
-          isClerkUser: true, // Mark as real Clerk user for index enforcement
+          role, // Set default role only on first insert (don't overwrite user preferences)
+          department, // Set default department only on first insert
           bio: null,
           headline: null,
           location: null,
@@ -77,10 +78,8 @@ export async function ensureUserProvisioned({ clerkUser, dbUsersCollection }) {
           email,
           firstName,
           lastName,
-          role,
-          department,
           updatedAt: now,
-          isClerkUser: true, // Ensure existing users are also marked
+          isClerkUser: true, // Mark as real Clerk user (no conflict - only in $set)
         },
       },
       { upsert: true }
