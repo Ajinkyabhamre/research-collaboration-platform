@@ -34,7 +34,16 @@ const clerkClient = createClerkClient({
 
 // Authentication helper
 async function authenticateUser(authHeader) {
+  // Production-safe: Log whether header exists (not the token itself)
+  const hasAuthHeader = !!authHeader;
+  const hasBearerPrefix = authHeader?.startsWith("Bearer ");
+
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    console.log("[AUTH] No Authorization header or invalid format", {
+      hasAuthHeader,
+      hasBearerPrefix,
+      expected: "Authorization: Bearer <token>"
+    });
     return { isAuthenticated: false, currentUser: null };
   }
 
@@ -69,6 +78,13 @@ async function authenticateUser(authHeader) {
       throw new Error(`User provisioning failed: ${provisionError.message}`);
     }
 
+    // Production-safe: Log success without exposing tokens
+    console.log("[AUTH] Authentication successful", {
+      clerkUserId: clerkUser.id,
+      email,
+      mongoUserId: currentUser._id.toString()
+    });
+
     return {
       isAuthenticated: true,
       currentUser,
@@ -76,10 +92,12 @@ async function authenticateUser(authHeader) {
       tokenEmail: email,
     };
   } catch (error) {
+    // Production-safe: Log error name/message but never log tokens or secrets
     console.error("[AUTH] ERROR during authentication:", {
-      message: error.message,
-      stack: error.stack,
-      name: error.name,
+      errorName: error.name,
+      errorMessage: error.message,
+      // Only include stack in development
+      ...(process.env.NODE_ENV !== 'production' && { stack: error.stack })
     });
     return { isAuthenticated: false, currentUser: null };
   }
@@ -373,7 +391,7 @@ app.get('/health', (req, res) => {
 });
 
 // Dev-only debug endpoint to inspect auth state (gated behind env flags)
-app.get('/debug/auth', async (req, res) => {
+const authDebugHandler = async (req, res) => {
   // Require both non-production env AND explicit flag
   if (!DEV_AUTH_TOOLS_ENABLED) {
     return res.status(404).json({ error: 'Not found' });
@@ -386,6 +404,7 @@ app.get('/debug/auth', async (req, res) => {
   let debugInfo = {
     environment: process.env.NODE_ENV || 'development',
     hasAuthHeader,
+    hasClerkSecret: !!process.env.CLERK_SECRET_KEY,
     tokenPresent,
     authHeaderPrefix: authHeader ? authHeader.substring(0, 20) + "..." : "none",
   };
@@ -418,7 +437,11 @@ app.get('/debug/auth', async (req, res) => {
   }
 
   res.json(debugInfo);
-});
+};
+
+// Register debug endpoints (both paths for convenience)
+app.get('/debug/auth', authDebugHandler);
+app.get('/auth/debug', authDebugHandler);
 
 // Apollo Server setup
 const apolloServer = new ApolloServer({

@@ -151,6 +151,11 @@ function ApolloProviderWithAuth({ children }) {
         // Get the authentication token from Clerk
         const token = await getToken();
 
+        // DEV-ONLY: Log auth header attachment status (never log the token itself)
+        if (import.meta.env.DEV) {
+          console.log("[Apollo] Auth header attached:", !!token);
+        }
+
         // Return the headers to the context so httpLink can read them
         return {
           headers: {
