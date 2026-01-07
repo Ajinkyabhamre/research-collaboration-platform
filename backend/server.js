@@ -91,7 +91,7 @@ const httpServer = createServer(app);
 
 // CORS configuration from env (comma-separated origins)
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "*";
-const allowedOrigins = FRONTEND_ORIGIN.split(",").map(origin => origin.trim());
+const allowedOrigins = FRONTEND_ORIGIN.split(",").map(origin => origin.trim().replace(/\/$/, '')); // Remove trailing slashes
 
 // Socket.IO setup (same httpServer instance!)
 const io = new SocketServer(httpServer, {
@@ -102,11 +102,29 @@ const io = new SocketServer(httpServer, {
 });
 const activeUsers = {}; // Store active users
 
-// Middleware
-app.use(cors({
-  origin: allowedOrigins,
+// CORS middleware configuration (shared for all routes)
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+
+    // Normalize origin (remove trailing slash)
+    const normalizedOrigin = origin.replace(/\/$/, '');
+
+    // Check if origin is allowed (support wildcard or exact match)
+    if (allowedOrigins.includes('*') || allowedOrigins.includes(normalizedOrigin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin ${origin} not allowed by CORS policy. Allowed origins: ${allowedOrigins.join(', ')}`));
+    }
+  },
   credentials: true,
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+// Middleware
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Serve static files
@@ -418,10 +436,9 @@ const startServer = async () => {
 
   await apolloServer.start();
 
-  // Apply Apollo middleware
+  // Apply Apollo middleware (CORS already applied globally)
   app.use(
     '/graphql',
-    cors(),
     express.json(),
     expressMiddleware(apolloServer, {
       context: async ({ req }) => {
