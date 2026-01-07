@@ -34,34 +34,155 @@ import { io } from "../server.js";
 //REDIS CLIENT SET UP
 dotenv.config();
 
-// Prefer REDIS_URL (Railway private networking) over redis_ip/redis_port (local dev)
+// Redis Configuration
+// Priority: REDIS_URL (Railway/production) > redis_ip/redis_port (local dev)
 // Railway format: redis://default:password@redis.railway.internal:6379
 // Local format: redis_ip=127.0.0.1, redis_port=6379
-const redisConfig = process.env.REDIS_URL
-  ? { url: process.env.REDIS_URL }
+
+const isProduction = process.env.NODE_ENV === 'production';
+const redisUrl = process.env.REDIS_URL;
+const redisHost = process.env.redis_ip || '127.0.0.1'; // IPv4 fallback
+const redisPort = parseInt(process.env.redis_port) || 6379;
+
+// Warn if REDIS_URL missing in production
+if (isProduction && !redisUrl) {
+  console.warn('⚠️  WARNING: REDIS_URL not set in production. This may cause connection issues on Railway.');
+  console.warn('   Falling back to redis_ip/redis_port. Use Railway Redis private URL for best performance.');
+}
+
+const redisConfig = redisUrl
+  ? {
+      url: redisUrl,
+      socket: {
+        connectTimeout: 10000, // 10s timeout for Railway cold starts
+        reconnectStrategy: (retries) => {
+          if (retries > 5) {
+            console.error('❌ Redis: Max reconnection attempts reached. Giving up.');
+            return new Error('Max retry attempts exceeded');
+          }
+          const delay = Math.min(retries * 500, 3000); // Exponential backoff, max 3s
+          console.log(`🔄 Redis: Reconnecting... Attempt ${retries + 1}/5 (delay: ${delay}ms)`);
+          return delay;
+        }
+      }
+    }
   : {
       socket: {
-        host: process.env.redis_ip || '127.0.0.1',
-        port: process.env.redis_port || 6379,
-      },
+        host: redisHost,
+        port: redisPort,
+        family: 4, // Force IPv4 (avoid ::1 on some systems)
+        connectTimeout: 10000,
+        reconnectStrategy: (retries) => {
+          if (retries > 5) {
+            console.error('❌ Redis: Max reconnection attempts reached. Giving up.');
+            return new Error('Max retry attempts exceeded');
+          }
+          const delay = Math.min(retries * 500, 3000);
+          console.log(`🔄 Redis: Reconnecting... Attempt ${retries + 1}/5 (delay: ${delay}ms)`);
+          return delay;
+        }
+      }
     };
 
 const redisClient = createClient(redisConfig);
 
-//Catch any Redis client errors and log them for debugging
-redisClient.on("error", (err) => console.error("Redis Client Error", err));
+// Redis availability flag (for graceful degradation)
+let isRedisAvailable = false;
 
-// Connect to Redis, and confirm if connection is good or something went wrong.
+//Catch any Redis client errors and log them for debugging
+redisClient.on("error", (err) => {
+  console.error("❌ Redis Client Error:", err.message);
+  isRedisAvailable = false;
+});
+
+redisClient.on("connect", () => {
+  console.log("🔗 Redis: Connection established");
+  isRedisAvailable = true;
+});
+
+redisClient.on("ready", () => {
+  console.log("✅ Redis: Client ready");
+  isRedisAvailable = true;
+});
+
+redisClient.on("reconnecting", () => {
+  console.log("🔄 Redis: Attempting to reconnect...");
+  isRedisAvailable = false;
+});
+
+// Connect to Redis with detailed logging
 (async () => {
   try {
+    const connectionMode = redisUrl ? 'URL' : 'HOST/PORT';
+    const connectionInfo = redisUrl
+      ? `${redisUrl.split('@')[1] || 'unknown host'}` // Log host only, no password
+      : `${redisHost}:${redisPort}`;
+
+    console.log(`🔌 Redis: Connecting... Mode: ${connectionMode}, Target: ${connectionInfo}`);
+
     await redisClient.connect();
+    isRedisAvailable = true;
+
     // PHASE 5: Removed flushAll from startup - use targeted cache invalidation instead
-    const connectionMethod = process.env.REDIS_URL ? 'REDIS_URL' : 'redis_ip/redis_port';
-    console.log(`Connected to Redis (via ${connectionMethod})`);
+    console.log(`✅ Redis: Connected successfully (via ${connectionMode})`);
   } catch (error) {
-    console.error("Failed to connect to Redis:", error);
+    console.error("❌ Redis: Failed to connect:", error.message);
+    console.warn('⚠️  Server will continue without caching. GraphQL queries will hit MongoDB directly.');
+    isRedisAvailable = false;
   }
 })();
+
+// Redis helper functions with graceful degradation
+// These wrappers allow the server to continue functioning even if Redis is unavailable
+
+/**
+ * Safely get value from Redis cache
+ * @param {string} key - Cache key
+ * @returns {Promise<string|null>} Cached value or null if unavailable/error
+ */
+async function redisGet(key) {
+  if (!isRedisAvailable) return null;
+  try {
+    return await redisGet(key);
+  } catch (error) {
+    console.error(`Redis GET error for key "${key}":`, error.message);
+    return null;
+  }
+}
+
+/**
+ * Safely set value in Redis cache
+ * @param {string} key - Cache key
+ * @param {string} value - Value to cache (should be JSON stringified)
+ * @param {object} options - Options like { EX: ttl_seconds }
+ * @returns {Promise<boolean>} true if successful, false otherwise
+ */
+async function redisSet(key, value, options = {}) {
+  if (!isRedisAvailable) return false;
+  try {
+    await redisSet(key, value, options);
+    return true;
+  } catch (error) {
+    console.error(`Redis SET error for key "${key}":`, error.message);
+    return false;
+  }
+}
+
+/**
+ * Safely delete key(s) from Redis cache
+ * @param {...string} keys - One or more cache keys to delete
+ * @returns {Promise<boolean>} true if successful, false otherwise
+ */
+async function redisDel(...keys) {
+  if (!isRedisAvailable) return false;
+  try {
+    await redisDel(...keys);
+    return true;
+  } catch (error) {
+    console.error(`Redis DEL error for keys [${keys.join(', ')}]:`, error.message);
+    return false;
+  }
+}
 
 // Authorization helper functions (defined outside resolvers object)
 const requireAuth = (context) => {
@@ -186,7 +307,7 @@ export const resolvers = {
     users: async () => {
       //Cache key constructor and check
       const cacheKey = "users";
-      const cachedUsers = await redisClient.get(cacheKey);
+      const cachedUsers = await redisGet(cacheKey);
 
       //If users are cached, return the parsed JSON (JSON string to object)
       if (cachedUsers) {
@@ -204,7 +325,7 @@ export const resolvers = {
 
       //Cache pulled users, set to cachekey
       //Expiration: 1 hour (60 x 60 = 3600 seconds)
-      await redisClient.set(cacheKey, JSON.stringify(allUsers), { EX: 3600 });
+      await redisSet(cacheKey, JSON.stringify(allUsers), { EX: 3600 });
 
       //Return allUsers
       return allUsers;
@@ -463,7 +584,7 @@ export const resolvers = {
     projects: async () => {
       //Cache key constructor and check
       const cacheKey = "projects";
-      const cachedProjects = await redisClient.get(cacheKey);
+      const cachedProjects = await redisGet(cacheKey);
 
       //If projects are cached, return the parsed JSON (JSON string to object)
       if (cachedProjects) {
@@ -481,7 +602,7 @@ export const resolvers = {
 
       //Cache pulled projects, set to cachekey
       //Expiration: 1 hour (60 x 60 = 3600 seconds)
-      await redisClient.set(cacheKey, JSON.stringify(allProjects), {
+      await redisSet(cacheKey, JSON.stringify(allProjects), {
         EX: 3600,
       });
 
@@ -496,7 +617,7 @@ export const resolvers = {
     updates: async () => {
       // Cache key constructor and check
       const cacheKey = "updates";
-      const cachedUpdates = await redisClient.get(cacheKey);
+      const cachedUpdates = await redisGet(cacheKey);
 
       // If updates are cached, return the parsed JSON (JSON string to object)
       if (cachedUpdates) {
@@ -515,7 +636,7 @@ export const resolvers = {
       }
 
       // Cache updates for 1 hour
-      await redisClient.set(cacheKey, JSON.stringify(allUpdates), { EX: 3600 });
+      await redisSet(cacheKey, JSON.stringify(allUpdates), { EX: 3600 });
 
       // Return all updates
       return allUpdates;
@@ -528,7 +649,7 @@ export const resolvers = {
     applications: async () => {
       // Cache key constructor and check
       const cacheKey = "applications";
-      const cachedApplications = await redisClient.get(cacheKey);
+      const cachedApplications = await redisGet(cacheKey);
 
       // If applications are cached, return the parsed JSON (JSON string to object)
       if (cachedApplications) {
@@ -547,7 +668,7 @@ export const resolvers = {
       }
 
       // Cache applications for 1 hour
-      await redisClient.set(cacheKey, JSON.stringify(allApplications), {
+      await redisSet(cacheKey, JSON.stringify(allApplications), {
         EX: 3600,
       });
 
@@ -562,7 +683,7 @@ export const resolvers = {
     comments: async () => {
       // Cache key constructor and check
       const cacheKey = "comments";
-      const cachedComments = await redisClient.get(cacheKey);
+      const cachedComments = await redisGet(cacheKey);
 
       // If comments are cached, return the parsed JSON (JSON string to object)
       if (cachedComments) {
@@ -581,7 +702,7 @@ export const resolvers = {
       }
 
       // Cache comments for 1 hour
-      await redisClient.set(cacheKey, JSON.stringify(allComments), {
+      await redisSet(cacheKey, JSON.stringify(allComments), {
         EX: 3600,
       });
 
@@ -617,7 +738,7 @@ export const resolvers = {
       //Cache key constructor and check
       //Why use 'user:': ensures seperation between types with ids (users, projects, etc); clarity
       const cacheKey = `user:${args._id}`;
-      const cachedUser = await redisClient.get(cacheKey);
+      const cachedUser = await redisGet(cacheKey);
 
       //If the cachedUser is cached, return the parsed JSON (JSON string to object)
       if (cachedUser) {
@@ -638,7 +759,7 @@ export const resolvers = {
 
       //Set user into redis Cache; set to cacheKey
       //No expiration on cache
-      await redisClient.set(cacheKey, JSON.stringify(user));
+      await redisSet(cacheKey, JSON.stringify(user));
 
       //Return user
       return user;
@@ -672,7 +793,7 @@ export const resolvers = {
       //Cache key constructor and check
       //Why use 'project:': ensures seperation between types with ids; clarity
       const cacheKey = `project:${args._id}`;
-      const cachedProject = await redisClient.get(cacheKey);
+      const cachedProject = await redisGet(cacheKey);
 
       //If the project is cached, return the parsed JSON (JSON string to object)
       if (cachedProject) {
@@ -694,7 +815,7 @@ export const resolvers = {
 
       //Set project into redis Cache; set to cacheKey
       //No expiration on cache
-      await redisClient.set(cacheKey, JSON.stringify(project));
+      await redisSet(cacheKey, JSON.stringify(project));
 
       //Return project
       return project;
@@ -727,7 +848,7 @@ export const resolvers = {
 
       // Cache key constructor and check
       const cacheKey = `update:${args._id}`;
-      const cachedUpdate = await redisClient.get(cacheKey);
+      const cachedUpdate = await redisGet(cacheKey);
 
       // If the update is cached, return the parsed JSON
       if (cachedUpdate) {
@@ -746,7 +867,7 @@ export const resolvers = {
       }
 
       // Cache update indefinitely
-      await redisClient.set(cacheKey, JSON.stringify(update));
+      await redisSet(cacheKey, JSON.stringify(update));
 
       // Return update
       return update;
@@ -761,7 +882,7 @@ export const resolvers = {
       helpers.checkArg(projectId, 'string', 'projectId');
 
       const cacheKey = `getUpdatesByProjectId:${projectId}:${limit}`;
-      const cachedUpdates = await redisClient.get(cacheKey);
+      const cachedUpdates = await redisGet(cacheKey);
 
       if (cachedUpdates) {
         return JSON.parse(cachedUpdates);
@@ -777,7 +898,7 @@ export const resolvers = {
         .toArray();
 
       // Cache for 10 min
-      await redisClient.set(cacheKey, JSON.stringify(projectUpdates), { EX: 600 });
+      await redisSet(cacheKey, JSON.stringify(projectUpdates), { EX: 600 });
 
       return projectUpdates;
     },
@@ -809,7 +930,7 @@ export const resolvers = {
 
       // Cache key constructor and check
       const cacheKey = `application:${args._id}`;
-      const cachedApplication = await redisClient.get(cacheKey);
+      const cachedApplication = await redisGet(cacheKey);
 
       // If the application is cached, return the parsed JSON
       if (cachedApplication) {
@@ -830,7 +951,7 @@ export const resolvers = {
       }
 
       // Cache application indefinitely
-      await redisClient.set(cacheKey, JSON.stringify(application));
+      await redisSet(cacheKey, JSON.stringify(application));
 
       // Return application
       return application;
@@ -863,7 +984,7 @@ export const resolvers = {
 
       // Cache key constructor and check
       const cacheKey = `comment:${args._id}`;
-      const cachedComment = await redisClient.get(cacheKey);
+      const cachedComment = await redisGet(cacheKey);
 
       if (cachedComment) {
         return JSON.parse(cachedComment);
@@ -880,7 +1001,7 @@ export const resolvers = {
       }
 
       // Cache comment
-      await redisClient.set(cacheKey, JSON.stringify(comment));
+      await redisSet(cacheKey, JSON.stringify(comment));
 
       return comment;
     },
@@ -912,7 +1033,7 @@ export const resolvers = {
 
       // Cache key constructor and check
       const cacheKey = `professors:${args.projectId}`;
-      const cachedProfessors = await redisClient.get(cacheKey);
+      const cachedProfessors = await redisGet(cacheKey);
 
       //If projects are cached, then return
       if (cachedProfessors) {
@@ -950,7 +1071,7 @@ export const resolvers = {
         .toArray();
 
       // Cach
-      await redisClient.set(cacheKey, JSON.stringify(professors), { EX: 3600 });
+      await redisSet(cacheKey, JSON.stringify(professors), { EX: 3600 });
 
       // Return the array of professor User objects
       return professors;
@@ -983,7 +1104,7 @@ export const resolvers = {
 
       // Cache key constructor and check
       const cacheKey = `students:${args.projectId}`;
-      const cachedStudents = await redisClient.get(cacheKey);
+      const cachedStudents = await redisGet(cacheKey);
 
       //If projects are cached, then return
       if (cachedStudents) {
@@ -1022,7 +1143,7 @@ export const resolvers = {
         .toArray();
 
       // Cache
-      await redisClient.set(cacheKey, JSON.stringify(students), { EX: 3600 });
+      await redisSet(cacheKey, JSON.stringify(students), { EX: 3600 });
 
       // Return the array of student User objects
       return students;
@@ -1055,7 +1176,7 @@ export const resolvers = {
 
       // Cache key construction
       const cacheKey = `projects:${args._id}`;
-      const cachedProjects = await redisClient.get(cacheKey);
+      const cachedProjects = await redisGet(cacheKey);
 
       // If projects are cached, return the cached data
       if (cachedProjects) {
@@ -1076,7 +1197,7 @@ export const resolvers = {
         .toArray();
 
       // Cache the results for one hour
-      await redisClient.set(cacheKey, JSON.stringify(userProjects), {
+      await redisSet(cacheKey, JSON.stringify(userProjects), {
         EX: 3600,
       });
 
@@ -1111,7 +1232,7 @@ export const resolvers = {
 
       // Cache key constructor and check
       const cacheKey = `comments:${args.updateId}`;
-      const cachedComments = await redisClient.get(cacheKey);
+      const cachedComments = await redisGet(cacheKey);
 
       // If comments are cached, return them
       if (cachedComments) {
@@ -1125,7 +1246,7 @@ export const resolvers = {
         .toArray();
 
       // Cache the result
-      await redisClient.set(cacheKey, JSON.stringify(fetchedComments), {
+      await redisSet(cacheKey, JSON.stringify(fetchedComments), {
         EX: 3600,
       });
 
@@ -1160,7 +1281,7 @@ export const resolvers = {
 
       // Cache key constructor and check
       const cacheKey = `comments:${args.applicationId}`;
-      const cachedComments = await redisClient.get(cacheKey);
+      const cachedComments = await redisGet(cacheKey);
 
       // If comments are cached, return them
       if (cachedComments) {
@@ -1174,7 +1295,7 @@ export const resolvers = {
         .toArray();
 
       // Cache the result
-      await redisClient.set(cacheKey, JSON.stringify(fetchedComments), {
+      await redisSet(cacheKey, JSON.stringify(fetchedComments), {
         EX: 3600,
       });
 
@@ -1210,7 +1331,7 @@ export const resolvers = {
       //Cache key constructor and check
       //Cache key: note as department, and then use the provided argument's department as we're pulling based on this
       const cacheKey = `department:${args.department.trim()}`;
-      const cachedDepartment = await redisClient.get(cacheKey);
+      const cachedDepartment = await redisGet(cacheKey);
 
       //If the department is cached, return the parsed JSON (JSON string to object)
       if (cachedDepartment) {
@@ -1232,7 +1353,7 @@ export const resolvers = {
 
       //Cache the departmnet for one hour.
       //Expiration: 1 hour (60 x 60 = 3600 seconds)
-      await redisClient.set(cacheKey, JSON.stringify(projectsByDepartmnet), {
+      await redisSet(cacheKey, JSON.stringify(projectsByDepartmnet), {
         EX: 3600,
       });
 
@@ -1272,7 +1393,7 @@ export const resolvers = {
       // Cache key constructor and check
       // Cache key: note as subject, and then use the provided argument's subject as we're pulling based on this
       const cacheKey = `subject:${args.subject.trim()}`;
-      const cachedSubject = await redisClient.get(cacheKey);
+      const cachedSubject = await redisGet(cacheKey);
 
       // If the subject is cached, return the parsed JSON (JSON string to object)
       if (cachedSubject) {
@@ -1294,7 +1415,7 @@ export const resolvers = {
 
       // Cache the subject for one hour.
       // Expiration: 1 hour (60 x 60 = 3600 seconds)
-      await redisClient.set(cacheKey, JSON.stringify(updatesBySubject), {
+      await redisSet(cacheKey, JSON.stringify(updatesBySubject), {
         EX: 3600,
       });
 
@@ -1328,7 +1449,7 @@ export const resolvers = {
       //Cache key constructor and check
       //Cache key: note as createYear, and then use the provided argument's createYear as we're pulling based on this
       const cacheKey = `createdYear:${min}:${max}`;
-      const cachedProjectsByYear = await redisClient.get(cacheKey);
+      const cachedProjectsByYear = await redisGet(cacheKey);
 
       if (cachedProjectsByYear) {
         return JSON.parse(cachedProjectsByYear);
@@ -1356,7 +1477,7 @@ export const resolvers = {
 
       //Cache the projectsByCreatedRange for one hour.
       //Expiration: 1 hour (60 x 60 = 3600 seconds)
-      await redisClient.set(cacheKey, JSON.stringify(projectsByCreatedRange), {
+      await redisSet(cacheKey, JSON.stringify(projectsByCreatedRange), {
         EX: 3600,
       });
 
@@ -1395,7 +1516,7 @@ export const resolvers = {
       // Cache key constructor and check
       // Cache key: note as search term for project
       const cacheKey = `search:project:${lowercaseSearchTerm}`;
-      const cachedProjectsByTitle = await redisClient.get(cacheKey);
+      const cachedProjectsByTitle = await redisGet(cacheKey);
 
       //If projects cached based on search term, return
       if (cachedProjectsByTitle) {
@@ -1417,7 +1538,7 @@ export const resolvers = {
       }
 
       //Set projectsByTitle to cache based on cacheKey
-      await redisClient.set(cacheKey, JSON.stringify(projectsByTitle), {
+      await redisSet(cacheKey, JSON.stringify(projectsByTitle), {
         EX: 3600,
       });
 
@@ -1437,7 +1558,7 @@ export const resolvers = {
 
       // 2. CHECK CACHE
       const cacheKey = `projectsFeed:${hashInput(input)}`;
-      const cachedFeed = await redisClient.get(cacheKey);
+      const cachedFeed = await redisGet(cacheKey);
 
       if (cachedFeed) {
         return JSON.parse(cachedFeed);
@@ -1671,7 +1792,7 @@ export const resolvers = {
       };
 
       // 10. CACHE RESULT (600s = 10 minutes)
-      await redisClient.set(cacheKey, JSON.stringify(result), {
+      await redisSet(cacheKey, JSON.stringify(result), {
         EX: 600
       });
 
@@ -1694,7 +1815,7 @@ export const resolvers = {
 
       // ========== CHECK CACHE ==========
       const cacheKey = `appliedProjectsFeed:${userId}:${hashInput(input)}`;
-      const cachedFeed = await redisClient.get(cacheKey);
+      const cachedFeed = await redisGet(cacheKey);
 
       if (cachedFeed) {
         return JSON.parse(cachedFeed);
@@ -1917,7 +2038,7 @@ export const resolvers = {
       };
 
       // ========== CACHE RESULT (5 min TTL - shorter due to status changes) ==========
-      await redisClient.set(cacheKey, JSON.stringify(result), { EX: 300 });
+      await redisSet(cacheKey, JSON.stringify(result), { EX: 300 });
 
       return result;
     },
@@ -1953,7 +2074,7 @@ export const resolvers = {
       // Cache key constructor and check
       // Cache key: note as search term for user
       const cacheKey = `search:user:${lowercaseSearchTerm}`;
-      const cachedUsersBySearch = await redisClient.get(cacheKey);
+      const cachedUsersBySearch = await redisGet(cacheKey);
 
       //If users cachedUsersBySearch by searchTerm, return
       if (cachedUsersBySearch) {
@@ -1981,7 +2102,7 @@ export const resolvers = {
 
       //Cache the usersBySearch for one hour.
       //Expiration: 1 hour (60 x 60 = 3600 seconds)
-      await redisClient.set(cacheKey, JSON.stringify(usersBySearch), {
+      await redisSet(cacheKey, JSON.stringify(usersBySearch), {
         EX: 3600,
       });
 
@@ -2520,10 +2641,10 @@ export const resolvers = {
       try {
         //Add user to the redis cache
         const cacheKey = `user:${toAddUser._id}`;
-        await redisClient.set(cacheKey, JSON.stringify(toAddUser));
+        await redisSet(cacheKey, JSON.stringify(toAddUser));
 
         // Clear the 'users' in the cache bc this is no longer accurate
-        await redisClient.del("users");
+        await redisDel("users");
       } catch (error) {
         console.error("Redis operation failed:", error);
 
@@ -2644,8 +2765,8 @@ export const resolvers = {
       //Redis operations
       try {
         // Delete the individual user cache
-        await redisClient.del(`user:${args._id}`);
-        await redisClient.del("users");
+        await redisDel(`user:${args._id}`);
+        await redisDel("users");
       } catch (error) {
         console.error("Redis operation failed:", error);
         throw new GraphQLError(
@@ -2891,8 +3012,8 @@ export const resolvers = {
 
       // Clear targeted Redis cache keys (never flushAll)
       try {
-        await redisClient.del(`user:${context.currentUser._id}`);
-        await redisClient.del("users");
+        await redisDel(`user:${context.currentUser._id}`);
+        await redisDel("users");
       } catch (error) {
         // Log but don't fail the mutation if cache clear fails
         console.error("Redis cache clear failed:", error);
@@ -2997,27 +3118,27 @@ export const resolvers = {
 
       try {
         // Delete general caches
-        await redisClient.del("users");
-        await redisClient.del("applications");
-        await redisClient.del("updates");
-        await redisClient.del("comments");
+        await redisDel("users");
+        await redisDel("applications");
+        await redisDel("updates");
+        await redisDel("comments");
 
         // Delete individual user cache
-        await redisClient.del(`user:${args._id}`);
+        await redisDel(`user:${args._id}`);
 
         // Delete individual application caches
         for (let applicationId of applicationIds) {
-          await redisClient.del(`application:${applicationId}`);
+          await redisDel(`application:${applicationId}`);
         }
 
         // Delete individual update caches
         for (let updateId of updateIds) {
-          await redisClient.del(`update:${updateId}`);
+          await redisDel(`update:${updateId}`);
         }
 
         // Delete individual comment caches
         for (let commentId of commentIds) {
-          await redisClient.del(`comment:${commentId}`);
+          await redisDel(`comment:${commentId}`);
         }
 
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
@@ -3120,9 +3241,9 @@ export const resolvers = {
       try {
         // Add the project as an individual project cache
         const cacheKey = `project:${newProject._id}`;
-        await redisClient.set(cacheKey, JSON.stringify(newProject));
+        await redisSet(cacheKey, JSON.stringify(newProject));
         // Delete the projects cache, as it's no longer accurate
-        await redisClient.del("projects");
+        await redisDel("projects");
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
@@ -3271,10 +3392,10 @@ export const resolvers = {
       //Redis operations
       try {
         // Delete the projects cache as it's now out of date
-        await redisClient.del("projects");
+        await redisDel("projects");
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
         //Update the projects's individual cache;
-        await redisClient.set(
+        await redisSet(
           `project:${args._id}`,
           JSON.stringify(updatedProject)
         );
@@ -3397,8 +3518,8 @@ export const resolvers = {
 
       // Clear Redis cache
       try {
-        await redisClient.del(`project:${projectId}`);
-        await redisClient.del("projects");
+        await redisDel(`project:${projectId}`);
+        await redisDel("projects");
       } catch (error) {
         console.error("Redis cache clear failed:", error);
       }
@@ -3482,21 +3603,21 @@ export const resolvers = {
       // Redis operations
       try {
         // Delete general caches
-        await redisClient.del("projects");
-        await redisClient.del("updates");
-        await redisClient.del("applications");
+        await redisDel("projects");
+        await redisDel("updates");
+        await redisDel("applications");
 
         // Delete individual project cache
-        await redisClient.del(`project:${args._id}`);
+        await redisDel(`project:${args._id}`);
 
         // Delete individual update caches
         for (let updateId of updateIds) {
-          await redisClient.del(`update:${updateId}`);
+          await redisDel(`update:${updateId}`);
         }
 
         // Delete individual application caches
         for (let applicationId of applicationIds) {
-          await redisClient.del(`application:${applicationId}`);
+          await redisDel(`application:${applicationId}`);
         }
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
       } catch (error) {
@@ -3599,12 +3720,12 @@ export const resolvers = {
         //No expiration on cache
         const cacheKey = `update:${updateToAdd._id}`;
         // Delete cache for updates, as these are no longer accurate
-        await redisClient.del("updates");
+        await redisDel("updates");
         // Clear getUpdatesByProjectId cache for this project
-        await redisClient.del(`getUpdatesByProjectId:${args.projectId}:10`);
-        await redisClient.del(`getUpdatesByProjectId:${args.projectId}:50`);
+        await redisDel(`getUpdatesByProjectId:${args.projectId}:10`);
+        await redisDel(`getUpdatesByProjectId:${args.projectId}:50`);
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
-        await redisClient.set(cacheKey, JSON.stringify(updateToAdd));
+        await redisSet(cacheKey, JSON.stringify(updateToAdd));
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
         throw new GraphQLError(
@@ -3709,12 +3830,12 @@ export const resolvers = {
 
       // Update Redis cache
       try {
-        await redisClient.del("updates"); // Clear updates cache
+        await redisDel("updates"); // Clear updates cache
         // Clear getUpdatesByProjectId cache for this project
-        await redisClient.del(`getUpdatesByProjectId:${updateToUpdate.projectId}:10`);
-        await redisClient.del(`getUpdatesByProjectId:${updateToUpdate.projectId}:50`);
+        await redisDel(`getUpdatesByProjectId:${updateToUpdate.projectId}:10`);
+        await redisDel(`getUpdatesByProjectId:${updateToUpdate.projectId}:50`);
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
-        await redisClient.set(
+        await redisSet(
           `update:${args._id}`,
           JSON.stringify(updateToUpdate)
         );
@@ -3810,21 +3931,21 @@ export const resolvers = {
       // Update Redis cache
       try {
         // Delete the general updates cache as it's outdated
-        await redisClient.del("updates");
+        await redisDel("updates");
         // Delete the individual cache for this update
-        await redisClient.del(`update:${args._id}`);
+        await redisDel(`update:${args._id}`);
         // Clear getUpdatesByProjectId cache for this project
-        await redisClient.del(`getUpdatesByProjectId:${deletedUpdate.projectId}:10`);
-        await redisClient.del(`getUpdatesByProjectId:${deletedUpdate.projectId}:50`);
+        await redisDel(`getUpdatesByProjectId:${deletedUpdate.projectId}:10`);
+        await redisDel(`getUpdatesByProjectId:${deletedUpdate.projectId}:50`);
 
         // Delete the general comments cache as it's outdated
-        await redisClient.del("comments");
+        await redisDel("comments");
 
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
 
         // Delete individual comment caches
         for (let commentId of commentIds) {
-          await redisClient.del(`comment:${commentId}`);
+          await redisDel(`comment:${commentId}`);
         }
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
@@ -3948,9 +4069,9 @@ export const resolvers = {
         //Add the individual application cache
         const cacheKey = `application:${applicationToAdd._id}`;
         //Delete the applications cache, as this is now out of date.'
-        await redisClient.del("applications");
+        await redisDel("applications");
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
-        await redisClient.set(cacheKey, JSON.stringify(applicationToAdd));
+        await redisSet(cacheKey, JSON.stringify(applicationToAdd));
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
         throw new GraphQLError(
@@ -4061,12 +4182,12 @@ export const resolvers = {
       // Update Redis cache
       try {
         // Delete the outdated cache
-        await redisClient.del("applications");
+        await redisDel("applications");
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
 
         // Set the updated application in the cache
         const cacheKey = `application:${args._id}`;
-        await redisClient.set(cacheKey, JSON.stringify(applicationToUpdate));
+        await redisSet(cacheKey, JSON.stringify(applicationToUpdate));
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
         throw new GraphQLError(
@@ -4158,17 +4279,17 @@ export const resolvers = {
       // Redis operations
       try {
         // Delete the general applications cache as it's outdated
-        await redisClient.del("applications");
+        await redisDel("applications");
         // Delete the individual cache for this application
-        await redisClient.del(`application:${args._id}`);
+        await redisDel(`application:${args._id}`);
 
         // Delete the general comments cache as it's outdated
-        await redisClient.del("comments");
+        await redisDel("comments");
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
 
         // Delete individual comment caches
         for (let commentId of commentIds) {
-          await redisClient.del(`comment:${commentId}`);
+          await redisDel(`comment:${commentId}`);
         }
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
@@ -4331,9 +4452,9 @@ export const resolvers = {
       // Update Redis cache
       try {
         const cacheKey = `comment:${newComment._id}`;
-        await redisClient.del("comments");
+        await redisDel("comments");
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
-        await redisClient.set(cacheKey, JSON.stringify(newComment));
+        await redisSet(cacheKey, JSON.stringify(newComment));
       } catch (redisError) {
         console.error("Failed to update Redis cache:", redisError);
         throw new GraphQLError(
@@ -4457,10 +4578,10 @@ export const resolvers = {
 
       // Update Redis cache
       try {
-        await redisClient.del("comments");
+        await redisDel("comments");
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
         const cacheKey = `comment:${commentToUpdate._id}`;
-        await redisClient.set(cacheKey, JSON.stringify(updatedComment));
+        await redisSet(cacheKey, JSON.stringify(updatedComment));
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
         throw new GraphQLError(
@@ -4551,8 +4672,8 @@ export const resolvers = {
       //await propagators.propagateCommentRemovalChanges(args._id);
 
       try {
-        await redisClient.del(`comment:${args._id}`);
-        await redisClient.del("comments");
+        await redisDel(`comment:${args._id}`);
+        await redisDel("comments");
         // PHASE 5: Removed flushAll - rely on existing targeted cache invalidation
       } catch (error) {
         console.error("Failed to update Redis cache:", error);
@@ -4625,7 +4746,7 @@ export const resolvers = {
 
       // Invalidate feed cache (optional)
       try {
-        await redisClient.del("feed:*");
+        await redisDel("feed:*");
       } catch (error) {
         console.error("Failed to invalidate feed cache:", error);
       }
@@ -4751,7 +4872,7 @@ export const resolvers = {
 
       // Invalidate comments cache (optional)
       try {
-        await redisClient.del(`comments:${args.postId}`);
+        await redisDel(`comments:${args.postId}`);
       } catch (error) {
         console.error("Failed to invalidate comments cache:", error);
       }
@@ -4810,14 +4931,14 @@ export const resolvers = {
 
       // Invalidate feed cache
       try {
-        await redisClient.del("feed:all");
+        await redisDel("feed:all");
       } catch (error) {
         console.error("Failed to invalidate feed cache:", error);
       }
 
       // Invalidate comments cache for this post
       try {
-        await redisClient.del(`comments:${args.postId}`);
+        await redisDel(`comments:${args.postId}`);
       } catch (error) {
         console.error("Failed to invalidate comments cache:", error);
       }
@@ -4927,9 +5048,9 @@ export const resolvers = {
 
       // Cache invalidation
       try {
-        await redisClient.del(`conversations:${currentUserId}`);
-        await redisClient.del(`conversations:${args.recipientId}`);
-        await redisClient.del(`conversation:${conversationId}`);
+        await redisDel(`conversations:${currentUserId}`);
+        await redisDel(`conversations:${args.recipientId}`);
+        await redisDel(`conversation:${conversationId}`);
       } catch (error) {
         console.error('Failed to invalidate conversation caches:', error);
       }
@@ -5032,8 +5153,8 @@ export const resolvers = {
 
       // Invalidate cache
       try {
-        await redisClient.del(`conversations:${currentUserId}`);
-        await redisClient.del(`conversation:${args.conversationId}`);
+        await redisDel(`conversations:${currentUserId}`);
+        await redisDel(`conversation:${args.conversationId}`);
       } catch (error) {
         console.error('Failed to invalidate conversation caches:', error);
       }
