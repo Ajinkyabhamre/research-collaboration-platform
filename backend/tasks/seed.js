@@ -23,6 +23,7 @@ const professors = [
     role: "PROFESSOR",
     department: "COMPUTER_SCIENCE",
     bio: null,
+    isClerkUser: false,
   },
   {
     _id: { $oid: "000000000000000000000002" },
@@ -407,6 +408,7 @@ const seedUsers = async () => {
 
   for (let professor of professors) {
     professor._id = new ObjectId(professor._id.$oid);
+    professor.isClerkUser = false; // Mark seed data users as fake
 
     try {
       // Insert the professor directly into the database
@@ -421,6 +423,7 @@ const seedUsers = async () => {
       throw err; // Stop further execution if there's an error inserting the professor
     }
   }
+  console.log("All professors seeded successfully");
 };
 
 const students = [
@@ -612,6 +615,7 @@ const seedStudents = async () => {
   for (let student of students) {
     // Ensure _id is properly formatted as an ObjectId
     student._id = new ObjectId(student._id.$oid);
+    student.isClerkUser = false; // Mark seed data users as fake
 
     try {
       // Insert the student directly into the database
