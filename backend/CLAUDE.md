@@ -1,6 +1,10 @@
-# Backend - Stevens Research Platform
+# Backend - Research Collaboration Platform
 
-## Purpose
+> **Context file for AI assistants working on the backend**
+
+## Current Stable State
+
+**Status**: Production-ready GraphQL + Socket.io backend (Jan 2026)
 
 GraphQL API server with real-time messaging, media upload, Redis caching, and MongoDB persistence. Handles authentication via Clerk, serves static files, and provides Socket.io channels for project-based chat.
 
@@ -87,3 +91,118 @@ Note: `npm start` runs `node server.js & node app.js` (see package.json:7)
 - Events: `join_channel`, `chat_message`, `user_connected`, `disconnect`
 - Channels: Project-based (uses project._id)
 - Persistence: Last 50 messages loaded on join
+
+## How to Run Locally
+
+```bash
+# Install dependencies
+npm install
+
+# Seed database (first time or reset)
+npm run seed
+
+# Start both servers
+npm start
+# GraphQL Server: http://localhost:4000
+# Socket.io Server: http://localhost:4001
+```
+
+## Key Commands
+
+```bash
+npm start          # Start GraphQL (4000) + Socket.io (4001)
+npm run seed       # Seed database with test data
+node server.js     # Start GraphQL server only
+node app.js        # Start Socket.io server only
+
+# Health checks
+curl http://localhost:4000/health  # GraphQL + Upload
+curl http://localhost:4001/health  # Socket.io
+```
+
+## Environment Variables Required
+
+Create `backend/.env` (copy from `.env.example`):
+
+```env
+mongoServerUrl=mongodb+srv://...     # MongoDB Atlas connection string
+mongoDbname=research_collaboration_db
+redis_ip=127.0.0.1
+redis_port=6379
+CLERK_SECRET_KEY=sk_test_...         # Clerk secret key
+NODE_ENV=development
+```
+
+## GraphQL Schema Structure
+
+**Main Types:**
+- `User` - User profiles (Clerk ID, role, department)
+- `Project` - Research projects with teams
+- `Update` - Project updates/announcements
+- `Application` - Student applications to projects
+- `Comment` - Comments on updates/applications
+- `Post` - Social feed posts (Home Feed V2)
+- `PostComment` - Comments on posts
+- `PostMedia` - Media attachments
+
+**Key Queries:**
+- `me` - Get current authenticated user
+- `projects` - List all projects (cached)
+- `getProjectById(id)` - Get project details
+- `feed(cursor)` - Get social feed posts (paginated)
+- `postComments(postId, cursor)` - Get post comments (paginated)
+
+**Key Mutations:**
+- `login(token)` - Auto-provision user from Clerk
+- `addProject(...)` - Create project (PROFESSOR/ADMIN only)
+- `addApplication(...)` - Apply to project
+- `changeApplicationStatus(...)` - Approve/reject application
+- `createPost(text, media)` - Create social feed post
+- `toggleLike(postId)` - Like/unlike post
+- `addPostComment(postId, text)` - Comment on post
+
+## Common Gotchas
+
+1. **Redis must be running**: Backend crashes if Redis is down. Start `redis-stack-server` first.
+2. **MongoDB IP whitelist**: MongoDB Atlas requires IP whitelisting. Add `0.0.0.0/0` for local dev or your current IP.
+3. **Clerk token verification**: Every GraphQL request verifies the Clerk JWT. If verification fails, request is rejected.
+4. **Socket.io JWT auth**: Socket.io also requires JWT token on connection (`socket.handshake.auth.token`).
+5. **File upload permissions**: Ensure `backend/public/uploads/` has write permissions.
+6. **Port conflicts**: Ensure ports 4000 and 4001 are free before starting.
+7. **Seed script drops collections**: `npm run seed` DROPS all collections. Never run in production.
+8. **Cache stale data**: If data seems outdated, clear Redis (`redis-cli FLUSHALL`).
+
+## Where to Change What
+
+| Task | Files |
+|------|-------|
+| Add GraphQL type/query/mutation | `graphQl/typeDefs.js`, `graphQl/resolvers.js` |
+| Modify auth logic | `server.js` (lines 29-78), `config/settings.js` |
+| Change caching | `graphQl/resolvers.js` (Redis get/set/del calls) |
+| Add Socket.io event | `app.js` (Socket.io event handlers) |
+| Modify file upload | `server.js` (lines 135-190, multer config) |
+| Add DB collection | `config/mongoCollections.js` |
+| Change seed data | `tasks/seed.js` |
+
+## DO NOT DO
+
+1. **DO NOT** modify `server.js` Socket.io setup without testing thoroughly. It's fragile.
+2. **DO NOT** change Redis key format without clearing cache first.
+3. **DO NOT** skip Clerk token verification. Security critical.
+4. **DO NOT** run `npm run seed` in production. It drops all data.
+5. **DO NOT** commit `.env` file. Only `.env.example` should be tracked.
+6. **DO NOT** delete `public/seed-media/`. It's tracked in git for seed script.
+7. **DO NOT** modify `package.json` scripts without updating `scripts/dev.sh` and `scripts/stop.sh`.
+8. **DO NOT** rename GraphQL fields without updating frontend queries. Breaking change.
+
+## Known Issues
+
+1. **No upload cleanup**: If file upload succeeds but mutation fails, orphaned files remain in `public/uploads/`.
+2. **No pagination cursor validation**: Malformed cursors can crash queries.
+3. **No graceful shutdown**: Servers don't handle SIGTERM/SIGINT properly. Use `lsof` + `kill` to stop.
+
+---
+
+**Last Updated**: Jan 2026
+**For frontend context, see**: `frontend/CLAUDE.md`
+**For high-level architecture, see**: `../CLAUDE.md`
