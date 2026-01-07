@@ -34,12 +34,19 @@ import { io } from "../server.js";
 //REDIS CLIENT SET UP
 dotenv.config();
 
-const redisClient = createClient({
-  socket: {
-    host: process.env.redis_ip, // Service name from docker-compose.yml
-    port: process.env.redis_port, // Default Redis port
-  },
-});
+// Prefer REDIS_URL (Railway private networking) over redis_ip/redis_port (local dev)
+// Railway format: redis://default:password@redis.railway.internal:6379
+// Local format: redis_ip=127.0.0.1, redis_port=6379
+const redisConfig = process.env.REDIS_URL
+  ? { url: process.env.REDIS_URL }
+  : {
+      socket: {
+        host: process.env.redis_ip || '127.0.0.1',
+        port: process.env.redis_port || 6379,
+      },
+    };
+
+const redisClient = createClient(redisConfig);
 
 //Catch any Redis client errors and log them for debugging
 redisClient.on("error", (err) => console.error("Redis Client Error", err));
@@ -49,7 +56,8 @@ redisClient.on("error", (err) => console.error("Redis Client Error", err));
   try {
     await redisClient.connect();
     // PHASE 5: Removed flushAll from startup - use targeted cache invalidation instead
-    console.log("Connected to Redis");
+    const connectionMethod = process.env.REDIS_URL ? 'REDIS_URL' : 'redis_ip/redis_port';
+    console.log(`Connected to Redis (via ${connectionMethod})`);
   } catch (error) {
     console.error("Failed to connect to Redis:", error);
   }
