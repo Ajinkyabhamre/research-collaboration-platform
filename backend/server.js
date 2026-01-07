@@ -89,16 +89,24 @@ async function authenticateUser(authHeader) {
 const app = express();
 const httpServer = createServer(app);
 
+// CORS configuration from env (comma-separated origins)
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "*";
+const allowedOrigins = FRONTEND_ORIGIN.split(",").map(origin => origin.trim());
+
 // Socket.IO setup (same httpServer instance!)
 const io = new SocketServer(httpServer, {
   cors: {
-    origin: "*",
+    origin: allowedOrigins,
+    credentials: true,
   },
 });
 const activeUsers = {}; // Store active users
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true,
+}));
 app.use(express.json());
 
 // Serve static files
@@ -308,11 +316,12 @@ app.post('/api/upload', async (req, res) => {
       const isImage = req.file.mimetype.startsWith('image/');
       const mediaType = isImage ? 'IMAGE' : 'VIDEO';
 
-      // Build URL
+      // Build URL (use BASE_URL env var or construct from request)
       const now = new Date();
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
-      const url = `http://localhost:4000/static/uploads/${year}/${month}/${req.file.filename}`;
+      const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+      const url = `${baseUrl}/static/uploads/${year}/${month}/${req.file.filename}`;
 
       res.json({
         url,
@@ -337,9 +346,10 @@ app.get('/health', (req, res) => {
     status: 'ok',
     services: {
       graphql: 'running',
+      socketio: 'running',
       upload: 'running',
-      port: 4000,
     },
+    port: process.env.PORT || 4000,
     timestamp: new Date().toISOString(),
   });
 });
@@ -451,10 +461,12 @@ const startServer = async () => {
     })
   );
 
-  httpServer.listen(4000, () => {
-    console.log(`✅ Server ready at http://localhost:4000`);
-    console.log(`   GraphQL: http://localhost:4000/graphql`);
+  const PORT = process.env.PORT || 4000;
+  httpServer.listen(PORT, () => {
+    console.log(`✅ Server ready at http://localhost:${PORT}`);
+    console.log(`   GraphQL: http://localhost:${PORT}/graphql`);
     console.log(`   Socket.IO + Uploads ready`);
+    console.log(`   CORS allowed origins: ${allowedOrigins.join(', ')}`);
   });
 };
 

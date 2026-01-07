@@ -132,12 +132,15 @@ function ApolloProviderWithAuth({ children }) {
 
   // ✅ Memoize httpLink (static config, never changes)
   const httpLink = React.useMemo(
-    () =>
-      new HttpLink({
-        uri: `http://${import.meta.env.VITE_GRAPHQL_IP}:${
-          import.meta.env.VITE_GRAPHQL_PORT
-        }/graphql`,
-      }),
+    () => {
+      // Support both full URL (production) and IP+PORT (local dev)
+      const graphqlUrl = import.meta.env.VITE_GRAPHQL_URL ||
+        `http://${import.meta.env.VITE_GRAPHQL_IP}:${import.meta.env.VITE_GRAPHQL_PORT}/graphql`;
+
+      return new HttpLink({
+        uri: graphqlUrl,
+      });
+    },
     []
   );
 

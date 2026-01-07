@@ -27,9 +27,13 @@ export const SocketProvider = ({ children }) => {
           return;
         }
 
-        // Create socket connection to port 4000 (unified server: GraphQL + Socket.IO) with JWT auth
+        // Create socket connection (unified server: GraphQL + Socket.IO) with JWT auth
+        // Support both full URL (production) and IP+PORT (local dev)
+        const socketUrl = import.meta.env.VITE_SOCKET_URL ||
+          `http://${import.meta.env.VITE_SOCKET_IP}:${import.meta.env.VITE_SOCKET_PORT}`;
+
         // IMPORTANT: Use auth callback to refresh token on every reconnection attempt
-        const newSocket = io('http://localhost:4000', {
+        const newSocket = io(socketUrl, {
           transports: ['websocket', 'polling'],
           reconnection: true,
           reconnectionDelay: 1000,
